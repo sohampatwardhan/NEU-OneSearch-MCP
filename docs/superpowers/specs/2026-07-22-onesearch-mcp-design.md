@@ -125,6 +125,36 @@ availability/full-text links.
 ## Out of scope (for this spec)
 
 - NU SSO / OAuth login and personalized account features (loans, holds,
-  saved lists, personal full-text entitlements).
+  saved lists, personal full-text entitlements). NEU's Primo VE uses SAML SSO
+  (`authentication-system: SAML`, profile `VEsamlprod`, silent login
+  disabled) — an interactive browser login flow, not something a background
+  MCP process can authenticate as itself. Adding it later would mean
+  launching a real browser for the user to log in through and capturing the
+  resulting Alma session cookie, which is real added complexity — treat as a
+  separate follow-on project, not a small addition to this one.
 - Publishing to npm for other users (may revisit later).
 - Any UI beyond the MCP tool interface itself.
+
+## Addendum (2026-07-22): campus scope selection
+
+NEU's Primo VE view config (`primaws/rest/pub/configuration/vid/01NEU_INST:NUL`)
+exposes four campus-scoped views under `primo-view.available-tabs` /
+`pc-availability-tab-scopes-map`, each a distinct `tab`/`scope` pair, verified
+live to return distinct result counts:
+
+| Campus | tab | scope |
+|---|---|---|
+| All Campuses | `Everything` | `CDI_plus_all_local` |
+| Boston Campus | `Boston` | `MyInst_and_CI` |
+| Oakland Campus | `Oakland` | `Mills_and_CI` |
+| Online Only | `Online` | `CDI_and_EResources` |
+
+**Bug found:** the server has hardcoded `tab=Everything` + `scope=MyInst_and_CI`
+since Task 3 — that's the *Boston* scope value paired with the "Everything"
+tab label, not genuine all-campus results. This addendum fixes it.
+
+`search_onesearch` gains an optional `campus` param (`'all' | 'boston' |
+'oakland' | 'online'`, default `'all'`) that selects the correct pair.
+`get_record` always uses the `all` pair (`CDI_plus_all_local`/`Everything`)
+regardless — it's an exact record-id lookup, not a campus-scoped browse, so
+maximizing lookup success matters more than matching a UI tab.

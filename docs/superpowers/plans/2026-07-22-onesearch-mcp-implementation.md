@@ -1033,3 +1033,299 @@ npm run build && node scripts/smoke-test.mjs
 git add scripts/smoke-test.mjs README.md
 git commit -m "docs: add README setup instructions and manual smoke test script"
 ```
+
+---
+
+## Task 6: Campus scope selection
+
+See the design spec's "Addendum (2026-07-22): campus scope selection" section
+for the full research/rationale. Summary: NEU's Primo VE config exposes four
+campus-scoped views as `tab`/`scope` pairs. The server currently hardcodes
+`tab=Everything` + `scope=MyInst_and_CI` (Task 3) — which is actually the
+*Boston* scope value mislabeled as "Everything", not genuine all-campus
+results. This task adds a `campus` param to `search_onesearch` and fixes the
+default to true all-campus scope.
+
+**Files:**
+- Modify: `src/types.ts`
+- Modify: `src/primoClient.ts`
+- Modify: `src/index.ts`
+- Modify: `test/primoClient.test.ts`
+- Modify: `test/index.test.ts`
+
+**Interfaces:**
+- Consumes: existing `SearchOneSearchParams`, `buildSearchParams`, `getRecord`, `createServer`.
+- Produces: `SearchOneSearchParams.campus?: 'all' | 'boston' | 'oakland' | 'online'` — a new optional field later tasks (none currently planned) could depend on.
+
+- [ ] **Step 1: Add the failing/updated tests in `test/primoClient.test.ts`**
+
+Add this new `describe` block (place it after the existing `describe('buildSearchParams', ...)` block):
+
+```typescript
+describe('buildSearchParams campus scope', () => {
+  it('defaults to the all-campus scope', () => {
+    const params = buildSearchParams({ query: 'x' });
+    expect(params.get('tab')).toBe('Everything');
+    expect(params.get('scope')).toBe('CDI_plus_all_local');
+  });
+
+  it('builds the Boston campus scope', () => {
+    const params = buildSearchParams({ query: 'x', campus: 'boston' });
+    expect(params.get('tab')).toBe('Boston');
+    expect(params.get('scope')).toBe('MyInst_and_CI');
+  });
+
+  it('builds the Oakland campus scope', () => {
+    const params = buildSearchParams({ query: 'x', campus: 'oakland' });
+    expect(params.get('tab')).toBe('Oakland');
+    expect(params.get('scope')).toBe('Mills_and_CI');
+  });
+
+  it('builds the Online-only campus scope', () => {
+    const params = buildSearchParams({ query: 'x', campus: 'online' });
+    expect(params.get('tab')).toBe('Online');
+    expect(params.get('scope')).toBe('CDI_and_EResources');
+  });
+
+  it('builds the all-campus scope explicitly', () => {
+    const params = buildSearchParams({ query: 'x', campus: 'all' });
+    expect(params.get('tab')).toBe('Everything');
+    expect(params.get('scope')).toBe('CDI_plus_all_local');
+  });
+});
+
+describe('getRecord campus scope', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('always uses the all-campus scope regardless of any campus preference', async () => {
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: async () => ({ info: { total: 1 }, docs: [{ pnx: { control: { recordid: ['alma1'] } } }] }),
+    });
+    await getRecord('alma1');
+    const calledUrl = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    expect(calledUrl).toContain('tab=Everything');
+    expect(calledUrl).toContain('scope=CDI_plus_all_local');
+  });
+});
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `npx vitest run test/primoClient.test.ts`
+Expected: FAIL — `tab`/`scope` assertions fail against the current hardcoded `SCOPE='MyInst_and_CI'`/`TAB='Everything'` values (e.g. the Boston-scope test expects `tab=Boston` but gets `Everything`).
+
+- [ ] **Step 3: Update `src/types.ts`**
+
+Add `campus` to `SearchOneSearchParams`:
+
+```typescript
+export interface SearchOneSearchParams {
+  query: string;
+  limit?: number;
+  resourceType?:
+    | 'articles'
+    | 'journals'
+    | 'books'
+    | 'newspaper_articles'
+    | 'reviews'
+    | 'book_chapters'
+    | 'dissertations';
+  dateFrom?: number;
+  dateTo?: number;
+  peerReviewedOnly?: boolean;
+  sort?: 'rank' | 'date' | 'title' | 'author';
+  campus?: 'all' | 'boston' | 'oakland' | 'online';
+}
+```
+
+(This is the existing interface with only the `campus` field added at the end — every other field is unchanged.)
+
+- [ ] **Step 4: Update `src/primoClient.ts`**
+
+Replace the `SCOPE`/`TAB` constants and their usages. The full updated file:
+
+```typescript
+import type { PrimoDoc, PrimoSearchResponse, SearchOneSearchParams } from './types.js';
+
+const BASE_URL = 'https://onesearch.library.northeastern.edu/primaws/rest/pub/pnxs';
+const INST = '01NEU_INST';
+const VID = '01NEU_INST:NUL';
+
+const CAMPUS_SCOPES: Record<'all' | 'boston' | 'oakland' | 'online', { tab: string; scope: string }> = {
+  all: { tab: 'Everything', scope: 'CDI_plus_all_local' },
+  boston: { tab: 'Boston', scope: 'MyInst_and_CI' },
+  oakland: { tab: 'Oakland', scope: 'Mills_and_CI' },
+  online: { tab: 'Online', scope: 'CDI_and_EResources' },
+};
+
+async function fetchPrimo(params: URLSearchParams): Promise<PrimoSearchResponse> {
+  const response = await fetch(`${BASE_URL}?${params.toString()}`);
+  if (!response.ok) {
+    throw new Error(`OneSearch request failed: HTTP ${response.status}`);
+  }
+  try {
+    return (await response.json()) as PrimoSearchResponse;
+  } catch {
+    throw new Error('OneSearch returned an unparseable response');
+  }
+}
+
+export function buildFacetClause(params: SearchOneSearchParams): string {
+  const hasResourceType = params.resourceType !== undefined;
+  const hasDateRange = params.dateFrom !== undefined || params.dateTo !== undefined;
+  const hasPeerReviewed = params.peerReviewedOnly === true;
+  const facetCount = [hasResourceType, hasDateRange, hasPeerReviewed].filter(Boolean).length;
+
+  if (facetCount > 1) {
+    throw new Error(
+      'OneSearch only supports one filter per search: resourceType, a date range, or peerReviewedOnly. Please provide only one.'
+    );
+  }
+
+  if (hasResourceType) {
+    return `facet_rtype,include,${params.resourceType}`;
+  }
+  if (hasDateRange) {
+    const from = params.dateFrom ?? 1000;
+    const to = params.dateTo ?? new Date().getFullYear();
+    return `facet_searchcreationdate,include,[${from} TO ${to}]`;
+  }
+  if (hasPeerReviewed) {
+    return 'facet_tlevel,include,peer_reviewed';
+  }
+  return '';
+}
+
+export function buildSearchParams(params: SearchOneSearchParams): URLSearchParams {
+  const limit = Math.min(Math.max(params.limit ?? 10, 1), 50);
+  const { tab, scope } = CAMPUS_SCOPES[params.campus ?? 'all'];
+
+  return new URLSearchParams({
+    inst: INST,
+    lang: 'en',
+    limit: String(limit),
+    mode: 'advanced',
+    offset: '0',
+    pcAvailability: 'false',
+    q: `any,contains,${params.query}`,
+    qExclude: '',
+    qInclude: buildFacetClause(params),
+    scope,
+    skipDelivery: 'N',
+    sort: params.sort ?? 'rank',
+    tab,
+    vid: VID,
+  });
+}
+
+export async function searchOneSearch(params: SearchOneSearchParams): Promise<PrimoSearchResponse> {
+  return fetchPrimo(buildSearchParams(params));
+}
+
+export async function getRecord(recordId: string): Promise<PrimoDoc | null> {
+  if (!recordId.startsWith('alma')) {
+    throw new Error(
+      `get_record only supports Northeastern catalog records (recordId starting with "alma"), received: ${recordId}`
+    );
+  }
+  const mmsId = recordId.slice('alma'.length);
+  const { tab, scope } = CAMPUS_SCOPES.all;
+  const params = new URLSearchParams({
+    inst: INST,
+    lang: 'en',
+    limit: '1',
+    mode: 'advanced',
+    offset: '0',
+    pcAvailability: 'false',
+    q: `mms_id,exact,${mmsId}`,
+    qExclude: '',
+    qInclude: '',
+    scope,
+    skipDelivery: 'N',
+    sort: 'rank',
+    tab,
+    vid: VID,
+  });
+  const response = await fetchPrimo(params);
+  return response.docs?.[0] ?? null;
+}
+```
+
+- [ ] **Step 5: Run the tests to verify they pass**
+
+Run: `npx vitest run test/primoClient.test.ts`
+Expected: PASS (20 tests: the pre-existing 15 plus 5 new campus-scope tests).
+
+- [ ] **Step 6: Add a test in `test/index.test.ts` for the new `campus` param**
+
+Add this test (place it after the existing `'search_onesearch returns mapped results as JSON text'` test):
+
+```typescript
+  it('search_onesearch accepts a campus param and passes it through to the fetch call', async () => {
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: async () => ({ info: { total: 0 }, docs: [] }),
+    });
+
+    const client = await connectedClient(createServer());
+    const result = await client.request(
+      { method: 'tools/call', params: { name: 'search_onesearch', arguments: { query: 'test', campus: 'oakland' } } },
+      CallToolResultSchema
+    );
+
+    expect(result.isError).toBeFalsy();
+    const calledUrl = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    expect(calledUrl).toContain('tab=Oakland');
+    expect(calledUrl).toContain('scope=Mills_and_CI');
+  });
+```
+
+- [ ] **Step 7: Update `src/index.ts`'s zod schema**
+
+In the `search_onesearch` tool's `inputSchema`, add a `campus` field (place it after `sort`):
+
+```typescript
+        sort: z.enum(['rank', 'date', 'title', 'author']).optional().describe('Sort order (default rank)'),
+        campus: z
+          .enum(['all', 'boston', 'oakland', 'online'])
+          .optional()
+          .describe('Restrict to one NEU campus/scope (default: all campuses)'),
+```
+
+(This is the existing `sort` line followed by the new `campus` field — every other field in the schema is unchanged.)
+
+- [ ] **Step 8: Run the tests to verify they pass**
+
+Run: `npx vitest run test/index.test.ts`
+Expected: PASS (5 tests: the pre-existing 4 plus the new campus-param test).
+
+- [ ] **Step 9: Run the full test suite**
+
+Run: `npm test`
+Expected: PASS (29 tests total across all files: 20 primoClient + 5 mapper + 5 index... wait, recount: 5 mapper + 20 primoClient + 5 index = 30 total). Note the exact final count may differ slightly by 1-2 from this estimate depending on final test authoring — what matters is 100% pass, zero failures.
+
+- [ ] **Step 10: Update `README.md`**
+
+In the "Tools" section, update the `search_onesearch` line to mention the new param:
+
+```markdown
+- `search_onesearch(query, limit?, resourceType?, dateFrom?, dateTo?, peerReviewedOnly?, sort?, campus?)` —
+  free-text search. Only one of `resourceType`, `dateFrom`/`dateTo`, or
+  `peerReviewedOnly` may be set per call — NEU's search API only honors one
+  filter at a time. `campus` restricts to one NEU campus/scope (`all`
+  (default), `boston`, `oakland`, or `online`) — `all` is genuine all-campus
+  results (`CDI_plus_all_local`), not just Boston + central index.
+```
+
+- [ ] **Step 11: Commit**
+
+```bash
+git add src/types.ts src/primoClient.ts src/index.ts test/primoClient.test.ts test/index.test.ts README.md
+git commit -m "feat: add campus scope selection and fix mislabeled default scope"
+```
