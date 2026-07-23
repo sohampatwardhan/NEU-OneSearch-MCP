@@ -1057,7 +1057,7 @@ default to true all-campus scope.
 - Consumes: existing `SearchOneSearchParams`, `buildSearchParams`, `getRecord`, `createServer`.
 - Produces: `SearchOneSearchParams.campus?: 'all' | 'boston' | 'oakland' | 'online'` — a new optional field later tasks (none currently planned) could depend on.
 
-- [ ] **Step 1: Add the failing/updated tests in `test/primoClient.test.ts`**
+- [x] **Step 1: Add the failing/updated tests in `test/primoClient.test.ts`**
 
 Add this new `describe` block (place it after the existing `describe('buildSearchParams', ...)` block):
 
@@ -1115,12 +1115,12 @@ describe('getRecord campus scope', () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `npx vitest run test/primoClient.test.ts`
 Expected: FAIL — `tab`/`scope` assertions fail against the current hardcoded `SCOPE='MyInst_and_CI'`/`TAB='Everything'` values (e.g. the Boston-scope test expects `tab=Boston` but gets `Everything`).
 
-- [ ] **Step 3: Update `src/types.ts`**
+- [x] **Step 3: Update `src/types.ts`**
 
 Add `campus` to `SearchOneSearchParams`:
 
@@ -1146,7 +1146,7 @@ export interface SearchOneSearchParams {
 
 (This is the existing interface with only the `campus` field added at the end — every other field is unchanged.)
 
-- [ ] **Step 4: Update `src/primoClient.ts`**
+- [x] **Step 4: Update `src/primoClient.ts`**
 
 Replace the `SCOPE`/`TAB` constants and their usages. The full updated file:
 
@@ -1257,12 +1257,12 @@ export async function getRecord(recordId: string): Promise<PrimoDoc | null> {
 }
 ```
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [x] **Step 5: Run the tests to verify they pass**
 
 Run: `npx vitest run test/primoClient.test.ts`
 Expected: PASS (20 tests: the pre-existing 15 plus 5 new campus-scope tests).
 
-- [ ] **Step 6: Add a test in `test/index.test.ts` for the new `campus` param**
+- [x] **Step 6: Add a test in `test/index.test.ts` for the new `campus` param**
 
 Add this test (place it after the existing `'search_onesearch returns mapped results as JSON text'` test):
 
@@ -1286,7 +1286,7 @@ Add this test (place it after the existing `'search_onesearch returns mapped res
   });
 ```
 
-- [ ] **Step 7: Update `src/index.ts`'s zod schema**
+- [x] **Step 7: Update `src/index.ts`'s zod schema**
 
 In the `search_onesearch` tool's `inputSchema`, add a `campus` field (place it after `sort`):
 
@@ -1300,17 +1300,17 @@ In the `search_onesearch` tool's `inputSchema`, add a `campus` field (place it a
 
 (This is the existing `sort` line followed by the new `campus` field — every other field in the schema is unchanged.)
 
-- [ ] **Step 8: Run the tests to verify they pass**
+- [x] **Step 8: Run the tests to verify they pass**
 
 Run: `npx vitest run test/index.test.ts`
 Expected: PASS (5 tests: the pre-existing 4 plus the new campus-param test).
 
-- [ ] **Step 9: Run the full test suite**
+- [x] **Step 9: Run the full test suite**
 
 Run: `npm test`
 Expected: PASS (29 tests total across all files: 20 primoClient + 5 mapper + 5 index... wait, recount: 5 mapper + 20 primoClient + 5 index = 30 total). Note the exact final count may differ slightly by 1-2 from this estimate depending on final test authoring — what matters is 100% pass, zero failures.
 
-- [ ] **Step 10: Update `README.md`**
+- [x] **Step 10: Update `README.md`**
 
 In the "Tools" section, update the `search_onesearch` line to mention the new param:
 
@@ -1323,9 +1323,192 @@ In the "Tools" section, update the `search_onesearch` line to mention the new pa
   results (`CDI_plus_all_local`), not just Boston + central index.
 ```
 
-- [ ] **Step 11: Commit**
+- [x] **Step 11: Commit**
 
 ```bash
 git add src/types.ts src/primoClient.ts src/index.ts test/primoClient.test.ts test/index.test.ts README.md
 git commit -m "feat: add campus scope selection and fix mislabeled default scope"
+```
+
+---
+
+## Task 7: Fix mislabeled scope in catalog permalink
+
+Task 6's reviewer confirmed a live follow-up bug found by Task 6's implementer:
+`src/mapper.ts`'s `buildCatalogUrl` (used by `mapDoc` to build the
+user-facing `catalogUrl` permalink) has its own separate hardcoded
+`scope: 'MyInst_and_CI'` + `tab: 'Everything'` pair — the same
+mislabeling Task 6 fixed in `primoClient.ts`, just duplicated in a second
+file. Worse, it's now also disconnected from whatever `campus` the caller
+actually searched with: an Oakland-scoped search's result permalinks would
+still claim the Boston scope value. This task threads the actual campus
+scope through `mapDoc`/`mapSearchResponse` and makes `mapper.ts` reuse
+`primoClient.ts`'s `CAMPUS_SCOPES` table instead of keeping its own copy.
+
+**Files:**
+- Modify: `src/primoClient.ts` (export `CAMPUS_SCOPES`)
+- Modify: `src/mapper.ts`
+- Modify: `src/index.ts`
+- Modify: `test/mapper.test.ts`
+
+**Interfaces:**
+- Consumes: `CAMPUS_SCOPES` (newly exported) from `src/primoClient.ts`; `SearchOneSearchParams['campus']` from `src/types.ts`.
+- Produces: `mapDoc(doc: PrimoDoc, campus?: SearchOneSearchParams['campus']): MappedResult` and `mapSearchResponse(response: PrimoSearchResponse, campus?: SearchOneSearchParams['campus']): SearchOneSearchResult` — both gain an optional second parameter; existing single-argument call sites remain valid (default `'all'`, matching today's only behavior).
+
+- [ ] **Step 1: Export `CAMPUS_SCOPES` from `src/primoClient.ts`**
+
+Change the existing (currently unexported) declaration:
+
+```typescript
+const CAMPUS_SCOPES: Record<'all' | 'boston' | 'oakland' | 'online', { tab: string; scope: string }> = {
+```
+
+to:
+
+```typescript
+export const CAMPUS_SCOPES: Record<'all' | 'boston' | 'oakland' | 'online', { tab: string; scope: string }> = {
+```
+
+(Only the `export` keyword is added — the rest of the declaration and its four entries are unchanged.)
+
+- [ ] **Step 2: Write the failing test in `test/mapper.test.ts`**
+
+Add this test inside the existing `describe('mapDoc', ...)` block (after the `'strips Primo internal $$ markup...'` test):
+
+```typescript
+  it('threads the campus scope through to the catalog permalink', () => {
+    const doc = fixture.docs[0];
+    const defaultResult = mapDoc(doc);
+    expect(defaultResult.catalogUrl).toContain('search_scope=CDI_plus_all_local');
+    expect(defaultResult.catalogUrl).toContain('tab=Everything');
+
+    const oaklandResult = mapDoc(doc, 'oakland');
+    expect(oaklandResult.catalogUrl).toContain('search_scope=Mills_and_CI');
+    expect(oaklandResult.catalogUrl).toContain('tab=Oakland');
+  });
+```
+
+Add this test inside the existing `describe('mapSearchResponse', ...)` block (after the `'maps total count and all docs'` test):
+
+```typescript
+  it('passes the campus scope through to every mapped result', () => {
+    const result = mapSearchResponse(fixture, 'boston');
+    expect(result.results[0].catalogUrl).toContain('search_scope=MyInst_and_CI');
+    expect(result.results[0].catalogUrl).toContain('tab=Boston');
+    expect(result.results[1].catalogUrl).toContain('search_scope=MyInst_and_CI');
+    expect(result.results[1].catalogUrl).toContain('tab=Boston');
+  });
+```
+
+- [ ] **Step 3: Run the tests to verify they fail**
+
+Run: `npx vitest run test/mapper.test.ts`
+Expected: FAIL — `mapDoc`/`mapSearchResponse` don't yet accept a second argument, so the campus-specific assertions fail against the old hardcoded `MyInst_and_CI`/`Everything` values (e.g. the Oakland assertion expects `Mills_and_CI` but gets `MyInst_and_CI`).
+
+- [ ] **Step 4: Update `src/mapper.ts`**
+
+Full updated file:
+
+```typescript
+import type { PrimoDoc, PrimoSearchResponse, MappedResult, SearchOneSearchResult, SearchOneSearchParams } from './types.js';
+import { CAMPUS_SCOPES } from './primoClient.js';
+
+const CATALOG_BASE_URL = 'https://onesearch.library.northeastern.edu/discovery/fulldisplay';
+const VID = '01NEU_INST:NUL';
+
+function first(values: string[] | undefined | null): string | null {
+  return values && values.length > 0 ? values[0] : null;
+}
+
+function stripPrimoMarkup(value: string): string {
+  const idx = value.indexOf('$$');
+  return idx === -1 ? value : value.slice(0, idx).trim();
+}
+
+function buildCatalogUrl(recordId: string, campus: NonNullable<SearchOneSearchParams['campus']>): string {
+  const { tab, scope } = CAMPUS_SCOPES[campus];
+  const params = new URLSearchParams({
+    docid: recordId,
+    context: 'L',
+    vid: VID,
+    lang: 'en',
+    search_scope: scope,
+    adaptor: 'Local Search Engine',
+    tab,
+  });
+  return `${CATALOG_BASE_URL}?${params.toString()}`;
+}
+
+function findFullTextUrl(doc: PrimoDoc): string | null {
+  const links = doc.delivery?.link ?? [];
+  const fullText = links.find((link) => link.linkType === 'linktorsrc');
+  return fullText ? fullText.linkURL : null;
+}
+
+export function mapDoc(doc: PrimoDoc, campus: SearchOneSearchParams['campus'] = 'all'): MappedResult {
+  const recordId = first(doc.pnx.control?.recordid) ?? '';
+  const display = doc.pnx.display ?? {};
+  const addata = doc.pnx.addata ?? {};
+  const authors = addata.au ?? (display.creator ?? []).map(stripPrimoMarkup);
+
+  return {
+    recordId,
+    title: first(display.title) ?? 'Untitled',
+    authors,
+    type: first(display.type),
+    date: first(display.creationdate),
+    publisher: first(display.publisher),
+    isbn: addata.isbn ?? [],
+    issn: addata.issn ?? [],
+    doi: first(addata.doi),
+    description: first(display.description),
+    contents: first(display.contents),
+    availability: doc.delivery?.displayedAvailability ?? null,
+    fullTextUrl: findFullTextUrl(doc),
+    catalogUrl: recordId ? buildCatalogUrl(recordId, campus) : '',
+  };
+}
+
+export function mapSearchResponse(
+  response: PrimoSearchResponse,
+  campus: SearchOneSearchParams['campus'] = 'all'
+): SearchOneSearchResult {
+  return {
+    totalResults: response.info?.total ?? 0,
+    results: (response.docs ?? []).map((doc) => mapDoc(doc, campus)),
+  };
+}
+```
+
+- [ ] **Step 5: Run the tests to verify they pass**
+
+Run: `npx vitest run test/mapper.test.ts`
+Expected: PASS (7 tests: the pre-existing 5 plus the 2 new campus-threading tests).
+
+- [ ] **Step 6: Update `src/index.ts`'s `search_onesearch` handler**
+
+Change:
+
+```typescript
+        const mapped = mapSearchResponse(raw);
+```
+
+to:
+
+```typescript
+        const mapped = mapSearchResponse(raw, params.campus);
+```
+
+(This is the only line that changes in `search_onesearch`'s handler. The `get_record` handler's `mapDoc(doc)` call is intentionally left unchanged — `get_record` always uses the all-campus scope per Task 6, and `mapDoc`'s new `campus` parameter defaults to `'all'`, so calling it with one argument still does the right thing.)
+
+- [ ] **Step 7: Run the full test suite**
+
+Run: `npm test`
+Expected: PASS (all tests, zero failures — pre-existing count plus the 2 new mapper tests).
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add src/primoClient.ts src/mapper.ts src/index.ts test/mapper.test.ts
+git commit -m "fix: thread campus scope into catalog permalink URLs"
 ```
