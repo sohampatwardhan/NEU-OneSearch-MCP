@@ -86,6 +86,10 @@ Sessions are not auto-detected as expired, since live testing found nothing to d
 - `get_record(recordId)` — fetch full detail (abstract, table of contents, availability, full-text link) for one result from a prior search.
   Only supports NEU catalog records (`recordId` starting with `alma`).
 
+Each mapped result includes both `catalogUrl` and `doiUrl` (when a DOI is present).
+`catalogUrl` points at the OneSearch discovery record itself and can show a "sign in or access from campus network" wall for CDI-sourced (`cdi_*`) records if you aren't already signed into OneSearch in that browser — this is Primo VE's own frontend access control, unaffected by anything this server does.
+`doiUrl` (`https://doi.org/<doi>`) is a stable link that always resolves to the publisher's landing page and doesn't require an NEU session; prefer it when sharing links or opening them in a fresh browser.
+
 ## Development
 
 ```bash

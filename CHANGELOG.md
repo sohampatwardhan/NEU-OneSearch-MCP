@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `doiUrl` field on every mapped result (`https://doi.org/<doi>`, `null` if
+  no DOI present). Unlike `catalogUrl`, which points at the OneSearch
+  discovery record and can show a sign-in wall for CDI-sourced records when
+  opened outside an active OneSearch browser session, `doiUrl` always
+  resolves without needing an NEU login.
+
 ### Changed
 
 - Corrected the README's claim that logging in "may improve full-text/

@@ -31,6 +31,7 @@ export interface MappedResult {
   availability: string | null;
   fullTextUrl: string | null;
   catalogUrl: string;
+  doiUrl: string | null;
 }
 
 export interface SearchOneSearchResult {

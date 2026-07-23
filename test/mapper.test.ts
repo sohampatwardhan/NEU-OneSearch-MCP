@@ -29,6 +29,7 @@ describe('mapDoc', () => {
       'https://link.ezproxy.neu.edu/login?url=https://link.springer.com/10.1007/978-981-15-1967-3'
     );
     expect(result.catalogUrl).toContain('docid=alma9952077153901401');
+    expect(result.doiUrl).toBe('https://doi.org/10.1007/978-981-15-1967-3');
   });
 
   it('handles a record missing authors, isbn, doi, description, contents, and full-text link', () => {
@@ -42,6 +43,7 @@ describe('mapDoc', () => {
     expect(result.description).toBeNull();
     expect(result.contents).toBeNull();
     expect(result.fullTextUrl).toBeNull();
+    expect(result.doiUrl).toBeNull();
   });
 
   it('strips Primo internal $$ markup from creator when addata.au is absent', () => {

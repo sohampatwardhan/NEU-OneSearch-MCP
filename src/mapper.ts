@@ -33,11 +33,16 @@ function findFullTextUrl(doc: PrimoDoc): string | null {
   return fullText ? fullText.linkURL : null;
 }
 
+function buildDoiUrl(doi: string | null): string | null {
+  return doi ? `https://doi.org/${doi}` : null;
+}
+
 export function mapDoc(doc: PrimoDoc, campus: SearchOneSearchParams['campus'] = 'all'): MappedResult {
   const recordId = first(doc.pnx.control?.recordid) ?? '';
   const display = doc.pnx.display ?? {};
   const addata = doc.pnx.addata ?? {};
   const authors = addata.au ?? (display.creator ?? []).map(stripPrimoMarkup);
+  const doi = first(addata.doi);
 
   return {
     recordId,
@@ -48,12 +53,13 @@ export function mapDoc(doc: PrimoDoc, campus: SearchOneSearchParams['campus'] = 
     publisher: first(display.publisher),
     isbn: addata.isbn ?? [],
     issn: addata.issn ?? [],
-    doi: first(addata.doi),
+    doi,
     description: first(display.description),
     contents: first(display.contents),
     availability: doc.delivery?.displayedAvailability ?? null,
     fullTextUrl: findFullTextUrl(doc),
     catalogUrl: recordId ? buildCatalogUrl(recordId, campus) : '',
+    doiUrl: buildDoiUrl(doi),
   };
 }
 
