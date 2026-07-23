@@ -11,7 +11,8 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/index.ts",
-    "test": "vitest run"
+    "test": "vitest run",
+    "install-mcp": "node scripts/install-mcp.mjs"
   },
   "engines": {
     "node": ">=18.0.0"
