@@ -2,6 +2,7 @@
   "name": "neu-onesearch-mcp",
   "version": "0.1.0",
   "description": "MCP server for Northeastern University Scholar OneSearch",
+  "license": "MIT",
   "type": "module",
   "main": "dist/index.js",
   "bin": {

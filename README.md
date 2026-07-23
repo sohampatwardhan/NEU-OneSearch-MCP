@@ -4,8 +4,10 @@ An MCP server for Northeastern University's Scholar OneSearch
 (https://onesearch.library.northeastern.edu). Lets Claude search NEU's
 library catalog and article databases for academic references.
 
-Search-only: no login, no personal account features. See
-`docs/superpowers/specs/2026-07-22-onesearch-mcp-design.md` for the full
+Search works fully anonymously; an optional login unlocks
+personalized/entitlement-aware results for some resources (see "Logging in"
+below). See `docs/superpowers/specs/2026-07-22-onesearch-mcp-design.md` and
+`docs/superpowers/specs/2026-07-22-onesearch-auth-design.md` for the full
 design and research behind this.
 
 ## Setup
@@ -78,3 +80,11 @@ confirm the (unofficial) endpoint still behaves as expected:
 ```bash
 npm run build && node scripts/smoke-test.mjs
 ```
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for notable changes.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
