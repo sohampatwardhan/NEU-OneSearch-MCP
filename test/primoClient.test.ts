@@ -1,5 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { buildFacetClause, buildSearchParams, searchOneSearch, getRecord } from '../src/primoClient.js';
+import * as sessionModule from '../src/session.js';
+
+beforeEach(() => {
+  vi.spyOn(sessionModule, 'loadSession').mockReturnValue(null);
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe('buildFacetClause', () => {
   it('returns an empty string when no filters are provided', () => {
@@ -185,5 +194,60 @@ describe('fetchPrimo', () => {
     await expect(searchOneSearch({ query: 'test' })).rejects.toThrow(
       'OneSearch returned an unparseable response'
     );
+  });
+});
+
+describe('fetchPrimo cookie attachment', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('attaches a Cookie header when a session is present', async () => {
+    vi.spyOn(sessionModule, 'loadSession').mockReturnValue('JSESSIONID=abc123');
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: async () => ({ info: { total: 0 }, docs: [] }),
+    });
+
+    await searchOneSearch({ query: 'test' });
+
+    const options = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0][1] as
+      | RequestInit
+      | undefined;
+    expect(options?.headers).toEqual({ Cookie: 'JSESSIONID=abc123' });
+  });
+
+  it('sends no Cookie header when no session is present', async () => {
+    vi.spyOn(sessionModule, 'loadSession').mockReturnValue(null);
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: async () => ({ info: { total: 0 }, docs: [] }),
+    });
+
+    await searchOneSearch({ query: 'test' });
+
+    const options = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0][1] as
+      | RequestInit
+      | undefined;
+    expect(options?.headers).toBeUndefined();
+  });
+
+  it('attaches the Cookie header on getRecord requests too', async () => {
+    vi.spyOn(sessionModule, 'loadSession').mockReturnValue('JSESSIONID=abc123');
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: async () => ({ info: { total: 0 }, docs: [] }),
+    });
+
+    await getRecord('alma1');
+
+    const options = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0][1] as
+      | RequestInit
+      | undefined;
+    expect(options?.headers).toEqual({ Cookie: 'JSESSIONID=abc123' });
   });
 });

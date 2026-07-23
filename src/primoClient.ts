@@ -1,4 +1,5 @@
 import type { PrimoDoc, PrimoSearchResponse, SearchOneSearchParams } from './types.js';
+import { loadSession } from './session.js';
 
 const BASE_URL = 'https://onesearch.library.northeastern.edu/primaws/rest/pub/pnxs';
 const INST = '01NEU_INST';
@@ -12,7 +13,11 @@ export const CAMPUS_SCOPES: Record<'all' | 'boston' | 'oakland' | 'online', { ta
 };
 
 async function fetchPrimo(params: URLSearchParams): Promise<PrimoSearchResponse> {
-  const response = await fetch(`${BASE_URL}?${params.toString()}`);
+  const cookie = loadSession();
+  const response = await fetch(
+    `${BASE_URL}?${params.toString()}`,
+    cookie ? { headers: { Cookie: cookie } } : undefined
+  );
   if (!response.ok) {
     throw new Error(`OneSearch request failed: HTTP ${response.status}`);
   }
