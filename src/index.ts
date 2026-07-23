@@ -23,6 +23,10 @@ export function createServer(): McpServer {
         dateTo: z.number().int().optional().describe('Latest publication year'),
         peerReviewedOnly: z.boolean().optional().describe('Only return peer-reviewed results'),
         sort: z.enum(['rank', 'date', 'title', 'author']).optional().describe('Sort order (default rank)'),
+        campus: z
+          .enum(['all', 'boston', 'oakland', 'online'])
+          .optional()
+          .describe('Restrict to one NEU campus/scope (default: all campuses)'),
       },
     },
     async (params) => {

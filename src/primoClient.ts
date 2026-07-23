@@ -2,9 +2,14 @@ import type { PrimoDoc, PrimoSearchResponse, SearchOneSearchParams } from './typ
 
 const BASE_URL = 'https://onesearch.library.northeastern.edu/primaws/rest/pub/pnxs';
 const INST = '01NEU_INST';
-const SCOPE = 'MyInst_and_CI';
-const TAB = 'Everything';
 const VID = '01NEU_INST:NUL';
+
+const CAMPUS_SCOPES: Record<'all' | 'boston' | 'oakland' | 'online', { tab: string; scope: string }> = {
+  all: { tab: 'Everything', scope: 'CDI_plus_all_local' },
+  boston: { tab: 'Boston', scope: 'MyInst_and_CI' },
+  oakland: { tab: 'Oakland', scope: 'Mills_and_CI' },
+  online: { tab: 'Online', scope: 'CDI_and_EResources' },
+};
 
 async function fetchPrimo(params: URLSearchParams): Promise<PrimoSearchResponse> {
   const response = await fetch(`${BASE_URL}?${params.toString()}`);
@@ -46,6 +51,7 @@ export function buildFacetClause(params: SearchOneSearchParams): string {
 
 export function buildSearchParams(params: SearchOneSearchParams): URLSearchParams {
   const limit = Math.min(Math.max(params.limit ?? 10, 1), 50);
+  const { tab, scope } = CAMPUS_SCOPES[params.campus ?? 'all'];
 
   return new URLSearchParams({
     inst: INST,
@@ -57,10 +63,10 @@ export function buildSearchParams(params: SearchOneSearchParams): URLSearchParam
     q: `any,contains,${params.query}`,
     qExclude: '',
     qInclude: buildFacetClause(params),
-    scope: SCOPE,
+    scope,
     skipDelivery: 'N',
     sort: params.sort ?? 'rank',
-    tab: TAB,
+    tab,
     vid: VID,
   });
 }
@@ -76,6 +82,7 @@ export async function getRecord(recordId: string): Promise<PrimoDoc | null> {
     );
   }
   const mmsId = recordId.slice('alma'.length);
+  const { tab, scope } = CAMPUS_SCOPES.all;
   const params = new URLSearchParams({
     inst: INST,
     lang: 'en',
@@ -86,10 +93,10 @@ export async function getRecord(recordId: string): Promise<PrimoDoc | null> {
     q: `mms_id,exact,${mmsId}`,
     qExclude: '',
     qInclude: '',
-    scope: SCOPE,
+    scope,
     skipDelivery: 'N',
     sort: 'rank',
-    tab: TAB,
+    tab,
     vid: VID,
   });
   const response = await fetchPrimo(params);

@@ -13,6 +13,7 @@ export interface SearchOneSearchParams {
   dateTo?: number;
   peerReviewedOnly?: boolean;
   sort?: 'rank' | 'date' | 'title' | 'author';
+  campus?: 'all' | 'boston' | 'oakland' | 'online';
 }
 
 export interface MappedResult {

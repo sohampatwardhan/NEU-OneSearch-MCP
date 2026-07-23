@@ -33,10 +33,12 @@ absolute path to this repo:
 
 ## Tools
 
-- `search_onesearch(query, limit?, resourceType?, dateFrom?, dateTo?, peerReviewedOnly?, sort?)` —
+- `search_onesearch(query, limit?, resourceType?, dateFrom?, dateTo?, peerReviewedOnly?, sort?, campus?)` —
   free-text search. Only one of `resourceType`, `dateFrom`/`dateTo`, or
   `peerReviewedOnly` may be set per call — NEU's search API only honors one
-  filter at a time.
+  filter at a time. `campus` restricts to one NEU campus/scope (`all`
+  (default), `boston`, `oakland`, or `online`) — `all` is genuine all-campus
+  results (`CDI_plus_all_local`), not just Boston + central index.
 - `get_record(recordId)` — fetch full detail (abstract, table of contents,
   availability, full-text link) for one result from a prior search. Only
   supports NEU catalog records (`recordId` starting with `alma`).

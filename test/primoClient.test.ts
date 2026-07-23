@@ -48,6 +48,58 @@ describe('buildSearchParams', () => {
   });
 });
 
+describe('buildSearchParams campus scope', () => {
+  it('defaults to the all-campus scope', () => {
+    const params = buildSearchParams({ query: 'x' });
+    expect(params.get('tab')).toBe('Everything');
+    expect(params.get('scope')).toBe('CDI_plus_all_local');
+  });
+
+  it('builds the Boston campus scope', () => {
+    const params = buildSearchParams({ query: 'x', campus: 'boston' });
+    expect(params.get('tab')).toBe('Boston');
+    expect(params.get('scope')).toBe('MyInst_and_CI');
+  });
+
+  it('builds the Oakland campus scope', () => {
+    const params = buildSearchParams({ query: 'x', campus: 'oakland' });
+    expect(params.get('tab')).toBe('Oakland');
+    expect(params.get('scope')).toBe('Mills_and_CI');
+  });
+
+  it('builds the Online-only campus scope', () => {
+    const params = buildSearchParams({ query: 'x', campus: 'online' });
+    expect(params.get('tab')).toBe('Online');
+    expect(params.get('scope')).toBe('CDI_and_EResources');
+  });
+
+  it('builds the all-campus scope explicitly', () => {
+    const params = buildSearchParams({ query: 'x', campus: 'all' });
+    expect(params.get('tab')).toBe('Everything');
+    expect(params.get('scope')).toBe('CDI_plus_all_local');
+  });
+});
+
+describe('getRecord campus scope', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('always uses the all-campus scope regardless of any campus preference', async () => {
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: async () => ({ info: { total: 1 }, docs: [{ pnx: { control: { recordid: ['alma1'] } } }] }),
+    });
+    await getRecord('alma1');
+    const calledUrl = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    expect(calledUrl).toContain('tab=Everything');
+    expect(calledUrl).toContain('scope=CDI_plus_all_local');
+  });
+});
+
 describe('searchOneSearch', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn());

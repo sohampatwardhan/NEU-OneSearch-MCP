@@ -48,6 +48,24 @@ describe('MCP server tools', () => {
     expect(parsed.results[0].title).toBe('Test Title');
   });
 
+  it('search_onesearch accepts a campus param and passes it through to the fetch call', async () => {
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: async () => ({ info: { total: 0 }, docs: [] }),
+    });
+
+    const client = await connectedClient(createServer());
+    const result = await client.request(
+      { method: 'tools/call', params: { name: 'search_onesearch', arguments: { query: 'test', campus: 'oakland' } } },
+      CallToolResultSchema
+    );
+
+    expect(result.isError).toBeFalsy();
+    const calledUrl = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    expect(calledUrl).toContain('tab=Oakland');
+    expect(calledUrl).toContain('scope=Mills_and_CI');
+  });
+
   it('search_onesearch surfaces a facet-conflict error as a tool error', async () => {
     const client = await connectedClient(createServer());
     const result = await client.request(
