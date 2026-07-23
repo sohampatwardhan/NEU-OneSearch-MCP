@@ -30,6 +30,7 @@ describe('mapDoc', () => {
     );
     expect(result.catalogUrl).toContain('docid=alma9952077153901401');
     expect(result.doiUrl).toBe('https://doi.org/10.1007/978-981-15-1967-3');
+    expect(result.ezproxyDoiUrl).toBe('https://doi-org.ezproxy.neu.edu/10.1007/978-981-15-1967-3');
   });
 
   it('handles a record missing authors, isbn, doi, description, contents, and full-text link', () => {
@@ -44,6 +45,7 @@ describe('mapDoc', () => {
     expect(result.contents).toBeNull();
     expect(result.fullTextUrl).toBeNull();
     expect(result.doiUrl).toBeNull();
+    expect(result.ezproxyDoiUrl).toBeNull();
   });
 
   it('strips Primo internal $$ markup from creator when addata.au is absent', () => {

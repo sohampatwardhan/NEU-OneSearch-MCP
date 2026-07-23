@@ -32,6 +32,7 @@ export interface MappedResult {
   fullTextUrl: string | null;
   catalogUrl: string;
   doiUrl: string | null;
+  ezproxyDoiUrl: string | null;
 }
 
 export interface SearchOneSearchResult {

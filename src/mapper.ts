@@ -3,6 +3,7 @@ import { CAMPUS_SCOPES } from './primoClient.js';
 
 const CATALOG_BASE_URL = 'https://onesearch.library.northeastern.edu/discovery/fulldisplay';
 const VID = '01NEU_INST:NUL';
+const EZPROXY_DOI_BASE_URL = 'https://doi-org.ezproxy.neu.edu';
 
 function first(values: string[] | undefined | null): string | null {
   return values && values.length > 0 ? values[0] : null;
@@ -37,6 +38,10 @@ function buildDoiUrl(doi: string | null): string | null {
   return doi ? `https://doi.org/${doi}` : null;
 }
 
+function buildEzproxyDoiUrl(doi: string | null): string | null {
+  return doi ? `${EZPROXY_DOI_BASE_URL}/${doi}` : null;
+}
+
 export function mapDoc(doc: PrimoDoc, campus: SearchOneSearchParams['campus'] = 'all'): MappedResult {
   const recordId = first(doc.pnx.control?.recordid) ?? '';
   const display = doc.pnx.display ?? {};
@@ -60,6 +65,7 @@ export function mapDoc(doc: PrimoDoc, campus: SearchOneSearchParams['campus'] = 
     fullTextUrl: findFullTextUrl(doc),
     catalogUrl: recordId ? buildCatalogUrl(recordId, campus) : '',
     doiUrl: buildDoiUrl(doi),
+    ezproxyDoiUrl: buildEzproxyDoiUrl(doi),
   };
 }
 

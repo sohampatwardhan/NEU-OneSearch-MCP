@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   discovery record and can show a sign-in wall for CDI-sourced records when
   opened outside an active OneSearch browser session, `doiUrl` always
   resolves without needing an NEU login.
+- `ezproxyDoiUrl` field on every mapped result (`https://doi-org.ezproxy.neu.edu/<doi>`,
+  `null` if no DOI present). Routes the DOI through NEU's EZproxy, prompting
+  a real NEU sign-in and then forwarding through the library's subscriptions
+  for authenticated full-text access — the counterpart to `doiUrl` for NEU
+  users who want entitled access rather than just the public landing page.
 
 ### Changed
 
