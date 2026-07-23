@@ -9,7 +9,7 @@ const LOGIN_URL = 'https://onesearch.library.northeastern.edu/discovery/login?vi
 async function main(): Promise<void> {
   mkdirSync(dirname(SESSION_PATH), { recursive: true });
 
-  const browser = await chromium.launch({ headless: false });
+  const browser = await chromium.launch({ headless: false, channel: 'chrome' });
   const context = await browser.newContext();
   const page = await context.newPage();
   await page.goto(LOGIN_URL);
