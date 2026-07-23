@@ -104,3 +104,35 @@ Claude, with tool responses telling the user plainly when to re-run it.
 - `login.ts` is inherently interactive and cannot be automated — documented
   as a manual verification step, the same pattern already established for
   `scripts/smoke-test.mjs`.
+
+## Addendum (2026-07-22): login currently unlocks nothing observable
+
+Two real live logins were tested (real NEU credentials, real SAML + Duo 2FA)
+and used to compare `search_onesearch`/`get_record` responses across valid,
+corrupted, and absent sessions, against three different catalog items
+(an NEU-owned ebook, a physical book with holdings/`isValidUser`, and an
+ebook with a real ezproxy full-text link) — all byte-identical every time.
+
+NEU's own library documentation states signing in should unlock additional
+results from subscription databases (Web of Science, ArtSTOR, GeoRef, MLA
+Bibliography) plus requesting/account features. Re-tested with topically
+targeted queries expected to surface that content — still identical.
+
+Traced the likely cause: the frontend bundle references a
+`/primaws/rest/pub/loginJwtCache/{key}` endpoint, with `{key}` found in
+`storageState()`'s captured `localStorage` (`getJWTFromSessionStorage`,
+UUID-shaped). Calling it manually returned `500 "invalid login id"` — this
+key is single-use/short-lived; the real frontend almost certainly consumed
+it itself immediately after login and stored the resulting JWT in
+`sessionStorage`, which Playwright's `storageState()` does not capture at
+all (only cookies + `localStorage`).
+
+**Conclusion:** unlocking CDI-subscription-database entitlements would
+require capturing `sessionStorage` (custom `page.evaluate()` scripting —
+`storageState()` has no built-in support for it) and handling a
+short-lived JWT's lifecycle — a materially bigger project than this spec's
+"replay stored cookies" scope. Deferred, not pursued, pending explicit
+sign-off to take it on as its own project. `README.md` reflects the current
+honest status: login exists as groundwork for future patron-identity
+features (favorites, requesting, account info), not because it currently
+improves anything `search_onesearch`/`get_record` return.
