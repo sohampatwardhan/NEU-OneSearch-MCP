@@ -1,0 +1,107 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { buildFacetClause, buildSearchParams, searchOneSearch, getRecord } from '../src/primoClient.js';
+
+describe('buildFacetClause', () => {
+  it('returns an empty string when no filters are provided', () => {
+    expect(buildFacetClause({ query: 'test' })).toBe('');
+  });
+
+  it('builds a resourceType facet clause', () => {
+    expect(buildFacetClause({ query: 'test', resourceType: 'articles' })).toBe('facet_rtype,include,articles');
+  });
+
+  it('builds a peer-reviewed facet clause', () => {
+    expect(buildFacetClause({ query: 'test', peerReviewedOnly: true })).toBe('facet_tlevel,include,peer_reviewed');
+  });
+
+  it('builds a date range facet clause', () => {
+    expect(buildFacetClause({ query: 'test', dateFrom: 2020, dateTo: 2023 })).toBe(
+      'facet_searchcreationdate,include,[2020 TO 2023]'
+    );
+  });
+
+  it('throws when more than one filter is requested at once', () => {
+    expect(() =>
+      buildFacetClause({ query: 'test', resourceType: 'articles', peerReviewedOnly: true })
+    ).toThrow(/only supports one filter/);
+  });
+});
+
+describe('buildSearchParams', () => {
+  it('builds params with defaults', () => {
+    const params = buildSearchParams({ query: 'machine learning' });
+    expect(params.get('q')).toBe('any,contains,machine learning');
+    expect(params.get('limit')).toBe('10');
+    expect(params.get('sort')).toBe('rank');
+    expect(params.get('skipDelivery')).toBe('N');
+    expect(params.get('vid')).toBe('01NEU_INST:NUL');
+  });
+
+  it('caps limit at 50', () => {
+    const params = buildSearchParams({ query: 'x', limit: 500 });
+    expect(params.get('limit')).toBe('50');
+  });
+
+  it('floors limit at 1', () => {
+    const params = buildSearchParams({ query: 'x', limit: 0 });
+    expect(params.get('limit')).toBe('1');
+  });
+});
+
+describe('searchOneSearch', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('returns parsed JSON on success', async () => {
+    const mockResponse = { info: { total: 1 }, docs: [] };
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: async () => mockResponse,
+    });
+    const result = await searchOneSearch({ query: 'test' });
+    expect(result).toEqual(mockResponse);
+  });
+
+  it('throws a clear error on a non-200 response', async () => {
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: false, status: 503 });
+    await expect(searchOneSearch({ query: 'test' })).rejects.toThrow('OneSearch request failed: HTTP 503');
+  });
+});
+
+describe('getRecord', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('rejects record ids that do not start with "alma"', async () => {
+    await expect(getRecord('cdi_something')).rejects.toThrow(/only supports Northeastern catalog records/);
+  });
+
+  it('builds an mms_id query and returns the first doc', async () => {
+    const doc = { pnx: { control: { recordid: ['alma123'] } } };
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: async () => ({ info: { total: 1 }, docs: [doc] }),
+    });
+    const result = await getRecord('alma123');
+    expect(result).toEqual(doc);
+    const calledUrl = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    expect(calledUrl).toContain(encodeURIComponent('mms_id,exact,123'));
+  });
+
+  it('returns null when no doc is found', async () => {
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: async () => ({ info: { total: 0 }, docs: [] }),
+    });
+    const result = await getRecord('alma999');
+    expect(result).toBeNull();
+  });
+});
