@@ -1,5 +1,5 @@
 import { chromium } from 'playwright';
-import { mkdirSync, chmodSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { SESSION_PATH } from './session.js';
@@ -19,8 +19,8 @@ async function main(): Promise<void> {
   await rl.question('Press Enter once you are logged in... ');
   rl.close();
 
-  await context.storageState({ path: SESSION_PATH });
-  chmodSync(SESSION_PATH, 0o600);
+  const state = await context.storageState();
+  writeFileSync(SESSION_PATH, JSON.stringify(state, null, 2), { mode: 0o600 });
 
   await browser.close();
   console.log(`Session saved to ${SESSION_PATH}`);
