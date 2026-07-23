@@ -17,7 +17,10 @@ interface StorageState {
 }
 
 function belongsToOneSearch(cookie: StoredCookie): boolean {
-  return typeof cookie.domain === 'string' && cookie.domain.endsWith(SESSION_DOMAIN);
+  return (
+    typeof cookie.domain === 'string' &&
+    (cookie.domain === SESSION_DOMAIN || cookie.domain.endsWith(`.${SESSION_DOMAIN}`))
+  );
 }
 
 export function loadSession(path: string = SESSION_PATH): string | null {

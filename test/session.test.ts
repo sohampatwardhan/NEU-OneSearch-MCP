@@ -86,6 +86,17 @@ describe('loadSession', () => {
     expect(loadSession(path)).toBe('JSESSIONID=onesearch-session-value');
   });
 
+  it('rejects a suffix-superstring domain that is not actually a subdomain (e.g. an attacker-controlled "evilonesearch.library.northeastern.edu")', () => {
+    const path = writeFixture(
+      JSON.stringify({
+        cookies: [
+          { name: 'JSESSIONID', value: 'attacker-value', domain: 'evilonesearch.library.northeastern.edu' },
+        ],
+      })
+    );
+    expect(loadSession(path)).toBeNull();
+  });
+
   it('returns null when the file has cookies but none match the onesearch domain', () => {
     const path = writeFixture(
       JSON.stringify({
