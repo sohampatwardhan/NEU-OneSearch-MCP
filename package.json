@@ -1,0 +1,28 @@
+{
+  "name": "neu-onesearch-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for Northeastern University Scholar OneSearch",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "neu-onesearch-mcp": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "test": "vitest run"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "tsx": "^4.16.0",
+    "vitest": "^2.0.0",
+    "@types/node": "^20.14.0"
+  }
+}
