@@ -31,6 +31,26 @@ absolute path to this repo:
 }
 ```
 
+## Logging in (optional)
+
+Search works fully anonymously with no login. Logging in may improve
+full-text/entitlement access for some resources. Run once, outside Claude:
+
+```bash
+npm run build
+node dist/login.js
+```
+
+A real browser window opens to NEU's actual SSO login page — complete your
+login there (your password never touches this codebase), then press Enter
+in the terminal. Your session is saved to `~/.neu-onesearch-mcp/session.json`
+(owner-only permissions) and picked up automatically by `search_onesearch`/
+`get_record` from then on. No session file present → fully anonymous
+behavior, unchanged from before.
+
+Sessions are not currently auto-detected as expired — if results seem off
+after a while, re-run `node dist/login.js`.
+
 ## Tools
 
 - `search_onesearch(query, limit?, resourceType?, dateFrom?, dateTo?, peerReviewedOnly?, sort?, campus?)` —
