@@ -1,4 +1,4 @@
-# NEU-OneSearch-MCP
+# Northeastern University Scholar OneSearch MCP for Claude
 
 An MCP server for Northeastern University's Scholar OneSearch
 (https://onesearch.library.northeastern.edu). Lets Claude search NEU's
