@@ -42,7 +42,9 @@ describe('loadSession', () => {
 
   it('formats a single cookie as a Cookie header value', () => {
     const path = writeFixture(
-      JSON.stringify({ cookies: [{ name: 'JSESSIONID', value: 'abc123' }] })
+      JSON.stringify({
+        cookies: [{ name: 'JSESSIONID', value: 'abc123', domain: 'onesearch.library.northeastern.edu' }],
+      })
     );
     expect(loadSession(path)).toBe('JSESSIONID=abc123');
   });
@@ -51,11 +53,45 @@ describe('loadSession', () => {
     const path = writeFixture(
       JSON.stringify({
         cookies: [
-          { name: 'JSESSIONID', value: 'abc123' },
-          { name: 'urm_st', value: '456' },
+          { name: 'JSESSIONID', value: 'abc123', domain: 'onesearch.library.northeastern.edu' },
+          { name: 'urm_st', value: '456', domain: 'onesearch.library.northeastern.edu' },
         ],
       })
     );
     expect(loadSession(path)).toBe('JSESSIONID=abc123; urm_st=456');
+  });
+
+  it('excludes cookies from unrelated domains (e.g. third-party analytics/SSO domains captured alongside the real session)', () => {
+    const path = writeFixture(
+      JSON.stringify({
+        cookies: [
+          { name: 'JSESSIONID', value: 'abc123', domain: 'onesearch.library.northeastern.edu' },
+          { name: '_ga', value: 'GA1.2.xyz', domain: '.northeastern.edu' },
+          { name: 'MUID', value: 'trackingvalue', domain: '.bing.com' },
+        ],
+      })
+    );
+    expect(loadSession(path)).toBe('JSESSIONID=abc123');
+  });
+
+  it('resolves a duplicate cookie name across domains to only the onesearch-domain value (SSO/Duo login captures a second JSESSIONID for neuidmsso.neu.edu)', () => {
+    const path = writeFixture(
+      JSON.stringify({
+        cookies: [
+          { name: 'JSESSIONID', value: 'sso-session-value', domain: 'neuidmsso.neu.edu' },
+          { name: 'JSESSIONID', value: 'onesearch-session-value', domain: 'onesearch.library.northeastern.edu' },
+        ],
+      })
+    );
+    expect(loadSession(path)).toBe('JSESSIONID=onesearch-session-value');
+  });
+
+  it('returns null when the file has cookies but none match the onesearch domain', () => {
+    const path = writeFixture(
+      JSON.stringify({
+        cookies: [{ name: 'MUID', value: 'trackingvalue', domain: '.bing.com' }],
+      })
+    );
+    expect(loadSession(path)).toBeNull();
   });
 });
