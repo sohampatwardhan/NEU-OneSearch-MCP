@@ -1,0 +1,71 @@
+{
+  "info": { "total": 6379075 },
+  "docs": [
+    {
+      "pnx": {
+        "display": {
+          "title": ["Machine learning"],
+          "creator": ["Zhou, Zhi-Hua (Computer scientist), author.$$QZhou, Zhi-Hua"],
+          "type": ["book"],
+          "creationdate": ["2021"],
+          "publisher": ["Singapore : Springer"],
+          "description": [
+            "Machine Learning, a vital and core area of artificial intelligence (AI), is propelling the AI field ever further and making it one of the most compelling areas of computer science research."
+          ],
+          "contents": [
+            "1 Introduction -- 2 Model Selection and Evaluation -- 3 Linear Models -- 4 Decision Trees -- 5 Neural Networks -- 6 Support Vector Machine."
+          ]
+        },
+        "control": {
+          "recordid": ["alma9952077153901401"]
+        },
+        "addata": {
+          "au": ["Zhou, Zhi-Hua"],
+          "isbn": ["9789811519673", "9811519676", "9811519668", "9789811519666"],
+          "doi": ["10.1007/978-981-15-1967-3"]
+        }
+      },
+      "delivery": {
+        "displayedAvailability": "Not available",
+        "link": [
+          {
+            "linkType": "thumbnail",
+            "linkURL": "https://proxy-na.hosted.exlibrisgroup.com/exl_rewrite/books.google.com/books?bibkeys=ISBN:9811519676,OCLC:,LCCN:&jscmd=viewapi&callback=updateGBSCover",
+            "displayLabel": "thumbnail"
+          },
+          {
+            "linkType": "linktorsrc",
+            "linkURL": "https://link.ezproxy.neu.edu/login?url=https://link.springer.com/10.1007/978-981-15-1967-3",
+            "displayLabel": "View book online"
+          }
+        ]
+      }
+    },
+    {
+      "pnx": {
+        "display": {
+          "title": ["Machine learning."],
+          "type": ["journal"],
+          "creationdate": ["1986"],
+          "publisher": ["Boston : Kluwer Academic Publishers"]
+        },
+        "control": {
+          "recordid": ["alma9946638590001401"]
+        },
+        "addata": {
+          "issn": ["1573-0565", "0885-6125"]
+        }
+      },
+      "delivery": {
+        "displayedAvailability": "Not available",
+        "link": [
+          {
+            "linkType": "thumbnail",
+            "linkURL": "https://proxy-na.hosted.exlibrisgroup.com/exl_rewrite/books.google.com/books?bibkeys=ISBN:,OCLC:,LCCN:2008233030&jscmd=viewapi&callback=updateGBSCover",
+            "displayLabel": "thumbnail"
+          }
+        ]
+      }
+    }
+  ]
+}
