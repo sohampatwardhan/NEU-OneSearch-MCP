@@ -4,9 +4,9 @@ An MCP server for Northeastern University's Scholar OneSearch
 (https://onesearch.library.northeastern.edu). Lets Claude search NEU's
 library catalog and article databases for academic references.
 
-Search works fully anonymously; an optional login unlocks
-personalized/entitlement-aware results for some resources (see "Logging in"
-below). See `docs/superpowers/specs/2026-07-22-onesearch-mcp-design.md` and
+Search works fully anonymously — an optional login exists (see "Logging in"
+below), but see that section for what it does and doesn't currently do. See
+`docs/superpowers/specs/2026-07-22-onesearch-mcp-design.md` and
 `docs/superpowers/specs/2026-07-22-onesearch-auth-design.md` for the full
 design and research behind this.
 
@@ -33,10 +33,11 @@ absolute path to this repo:
 }
 ```
 
-## Logging in (optional)
+## Logging in (optional, no current effect on search results)
 
-Search works fully anonymously with no login. Logging in may improve
-full-text/entitlement access for some resources. Run once, outside Claude:
+Search works fully anonymously with no login. `node dist/login.js` drives a
+real browser through NEU's actual SSO login and saves the resulting session
+for `search_onesearch`/`get_record` to attach automatically:
 
 ```bash
 npm run build
@@ -46,12 +47,22 @@ node dist/login.js
 A real browser window opens to NEU's actual SSO login page — complete your
 login there (your password never touches this codebase), then press Enter
 in the terminal. Your session is saved to `~/.neu-onesearch-mcp/session.json`
-(owner-only permissions) and picked up automatically by `search_onesearch`/
-`get_record` from then on. No session file present → fully anonymous
+(owner-only permissions). No session file present → fully anonymous
 behavior, unchanged from before.
 
-Sessions are not currently auto-detected as expired — if results seem off
-after a while, re-run `node dist/login.js`.
+**Honest status:** live testing (a real login, tested against three
+different catalog items including one with a full-text proxy link) found
+**no observable difference** in `search_onesearch`/`get_record` results with
+a valid session, an invalidated session, or no session at all — same
+availability, same holdings data, same full-text links, every time. Logging
+in does not currently improve anything these two tools return. It exists as
+groundwork for features that genuinely need patron identity (e.g. saved
+favorites/lists, placing holds) — those aren't built yet. If you don't need
+those, there's no reason to log in today.
+
+Sessions are not auto-detected as expired, since live testing found nothing
+to detect at this layer — session validity doesn't appear to affect these
+API responses at all.
 
 ## Tools
 

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Corrected the README's claim that logging in "may improve full-text/
+  entitlement access." Live testing (a real login, verified against three
+  catalog items including one with a full-text proxy link) found no
+  observable difference in `search_onesearch`/`get_record` results between a
+  valid session, an invalidated session, and no session at all. Login exists
+  as groundwork for future patron-identity features, not because it changes
+  today's search results.
+
 ## [0.1.0] - 2026-07-22
 
 ### Added
