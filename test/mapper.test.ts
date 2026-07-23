@@ -55,6 +55,17 @@ describe('mapDoc', () => {
     const result = mapDoc(doc);
     expect(result.authors).toEqual(['Smith, Jane']);
   });
+
+  it('threads the campus scope through to the catalog permalink', () => {
+    const doc = fixture.docs[0];
+    const defaultResult = mapDoc(doc);
+    expect(defaultResult.catalogUrl).toContain('search_scope=CDI_plus_all_local');
+    expect(defaultResult.catalogUrl).toContain('tab=Everything');
+
+    const oaklandResult = mapDoc(doc, 'oakland');
+    expect(oaklandResult.catalogUrl).toContain('search_scope=Mills_and_CI');
+    expect(oaklandResult.catalogUrl).toContain('tab=Oakland');
+  });
 });
 
 describe('mapSearchResponse', () => {
@@ -70,5 +81,13 @@ describe('mapSearchResponse', () => {
     const result = mapSearchResponse({ info: { total: 0 }, docs: [] });
     expect(result.totalResults).toBe(0);
     expect(result.results).toEqual([]);
+  });
+
+  it('passes the campus scope through to every mapped result', () => {
+    const result = mapSearchResponse(fixture, 'boston');
+    expect(result.results[0].catalogUrl).toContain('search_scope=MyInst_and_CI');
+    expect(result.results[0].catalogUrl).toContain('tab=Boston');
+    expect(result.results[1].catalogUrl).toContain('search_scope=MyInst_and_CI');
+    expect(result.results[1].catalogUrl).toContain('tab=Boston');
   });
 });

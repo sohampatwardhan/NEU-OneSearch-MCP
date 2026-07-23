@@ -4,7 +4,7 @@ const BASE_URL = 'https://onesearch.library.northeastern.edu/primaws/rest/pub/pn
 const INST = '01NEU_INST';
 const VID = '01NEU_INST:NUL';
 
-const CAMPUS_SCOPES: Record<'all' | 'boston' | 'oakland' | 'online', { tab: string; scope: string }> = {
+export const CAMPUS_SCOPES: Record<'all' | 'boston' | 'oakland' | 'online', { tab: string; scope: string }> = {
   all: { tab: 'Everything', scope: 'CDI_plus_all_local' },
   boston: { tab: 'Boston', scope: 'MyInst_and_CI' },
   oakland: { tab: 'Oakland', scope: 'Mills_and_CI' },

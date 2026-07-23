@@ -32,7 +32,7 @@ export function createServer(): McpServer {
     async (params) => {
       try {
         const raw = await searchOneSearch(params);
-        const mapped = mapSearchResponse(raw);
+        const mapped = mapSearchResponse(raw, params.campus);
         return { content: [{ type: 'text' as const, text: JSON.stringify(mapped, null, 2) }] };
       } catch (err) {
         return {
