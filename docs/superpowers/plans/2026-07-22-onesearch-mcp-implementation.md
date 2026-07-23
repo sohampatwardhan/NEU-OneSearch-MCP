@@ -1355,7 +1355,7 @@ scope through `mapDoc`/`mapSearchResponse` and makes `mapper.ts` reuse
 - Consumes: `CAMPUS_SCOPES` (newly exported) from `src/primoClient.ts`; `SearchOneSearchParams['campus']` from `src/types.ts`.
 - Produces: `mapDoc(doc: PrimoDoc, campus?: SearchOneSearchParams['campus']): MappedResult` and `mapSearchResponse(response: PrimoSearchResponse, campus?: SearchOneSearchParams['campus']): SearchOneSearchResult` — both gain an optional second parameter; existing single-argument call sites remain valid (default `'all'`, matching today's only behavior).
 
-- [ ] **Step 1: Export `CAMPUS_SCOPES` from `src/primoClient.ts`**
+- [x] **Step 1: Export `CAMPUS_SCOPES` from `src/primoClient.ts`**
 
 Change the existing (currently unexported) declaration:
 
@@ -1371,7 +1371,7 @@ export const CAMPUS_SCOPES: Record<'all' | 'boston' | 'oakland' | 'online', { ta
 
 (Only the `export` keyword is added — the rest of the declaration and its four entries are unchanged.)
 
-- [ ] **Step 2: Write the failing test in `test/mapper.test.ts`**
+- [x] **Step 2: Write the failing test in `test/mapper.test.ts`**
 
 Add this test inside the existing `describe('mapDoc', ...)` block (after the `'strips Primo internal $$ markup...'` test):
 
@@ -1400,12 +1400,12 @@ Add this test inside the existing `describe('mapSearchResponse', ...)` block (af
   });
 ```
 
-- [ ] **Step 3: Run the tests to verify they fail**
+- [x] **Step 3: Run the tests to verify they fail**
 
 Run: `npx vitest run test/mapper.test.ts`
 Expected: FAIL — `mapDoc`/`mapSearchResponse` don't yet accept a second argument, so the campus-specific assertions fail against the old hardcoded `MyInst_and_CI`/`Everything` values (e.g. the Oakland assertion expects `Mills_and_CI` but gets `MyInst_and_CI`).
 
-- [ ] **Step 4: Update `src/mapper.ts`**
+- [x] **Step 4: Update `src/mapper.ts`**
 
 Full updated file:
 
@@ -1480,12 +1480,12 @@ export function mapSearchResponse(
 }
 ```
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [x] **Step 5: Run the tests to verify they pass**
 
 Run: `npx vitest run test/mapper.test.ts`
 Expected: PASS (7 tests: the pre-existing 5 plus the 2 new campus-threading tests).
 
-- [ ] **Step 6: Update `src/index.ts`'s `search_onesearch` handler**
+- [x] **Step 6: Update `src/index.ts`'s `search_onesearch` handler**
 
 Change:
 
@@ -1501,12 +1501,12 @@ to:
 
 (This is the only line that changes in `search_onesearch`'s handler. The `get_record` handler's `mapDoc(doc)` call is intentionally left unchanged — `get_record` always uses the all-campus scope per Task 6, and `mapDoc`'s new `campus` parameter defaults to `'all'`, so calling it with one argument still does the right thing.)
 
-- [ ] **Step 7: Run the full test suite**
+- [x] **Step 7: Run the full test suite**
 
 Run: `npm test`
 Expected: PASS (all tests, zero failures — pre-existing count plus the 2 new mapper tests).
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/primoClient.ts src/mapper.ts src/index.ts test/mapper.test.ts
