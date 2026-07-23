@@ -31,7 +31,7 @@
 **Interfaces:**
 - Produces: `SearchOneSearchParams`, `MappedResult`, `SearchOneSearchResult`, `PrimoLink`, `PrimoDelivery`, `PrimoDisplay`, `PrimoControl`, `PrimoAddata`, `PrimoDoc`, `PrimoSearchResponse` (all exported from `src/types.ts`) — used by every later task.
 
-- [ ] **Step 1: Create `package.json`**
+- [x] **Step 1: Create `package.json`**
 
 ```json
 {
@@ -64,7 +64,7 @@
 }
 ```
 
-- [ ] **Step 2: Create `tsconfig.json`**
+- [x] **Step 2: Create `tsconfig.json`**
 
 ```json
 {
@@ -84,7 +84,7 @@
 }
 ```
 
-- [ ] **Step 3: Create `vitest.config.ts`**
+- [x] **Step 3: Create `vitest.config.ts`**
 
 ```typescript
 import { defineConfig } from 'vitest/config';
@@ -96,14 +96,14 @@ export default defineConfig({
 });
 ```
 
-- [ ] **Step 4: Create `.gitignore`**
+- [x] **Step 4: Create `.gitignore`**
 
 ```
 node_modules/
 dist/
 ```
 
-- [ ] **Step 5: Create `src/types.ts`**
+- [x] **Step 5: Create `src/types.ts`**
 
 ```typescript
 export interface SearchOneSearchParams {
@@ -192,7 +192,7 @@ export interface PrimoSearchResponse {
 }
 ```
 
-- [ ] **Step 6: Install dependencies and verify the build**
+- [x] **Step 6: Install dependencies and verify the build**
 
 Run: `npm install`
 Expected: installs without error.
@@ -200,7 +200,7 @@ Expected: installs without error.
 Run: `npm run build`
 Expected: compiles without error (only `dist/types.js` and `dist/types.d.ts`-less output since `declaration: false`; `dist/types.js` should exist).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add package.json tsconfig.json vitest.config.ts .gitignore src/types.ts package-lock.json
@@ -220,7 +220,7 @@ git commit -m "chore: scaffold TypeScript MCP server project with shared types"
 - Consumes: `PrimoDoc`, `PrimoSearchResponse`, `MappedResult`, `SearchOneSearchResult` from `src/types.ts` (Task 1).
 - Produces: `mapDoc(doc: PrimoDoc): MappedResult` and `mapSearchResponse(response: PrimoSearchResponse): SearchOneSearchResult`, both exported from `src/mapper.ts` — used by `src/index.ts` (Task 4).
 
-- [ ] **Step 1: Create the fixture file `test/fixtures/primo-search-response.json`**
+- [x] **Step 1: Create the fixture file `test/fixtures/primo-search-response.json`**
 
 This is real data captured from NEU's live OneSearch endpoint (trimmed to the fields the mapper reads), covering two contrasting cases: a book with full delivery/full-text info, and a journal title with several optional fields absent.
 
@@ -298,7 +298,7 @@ This is real data captured from NEU's live OneSearch endpoint (trimmed to the fi
 }
 ```
 
-- [ ] **Step 2: Write the failing tests in `test/mapper.test.ts`**
+- [x] **Step 2: Write the failing tests in `test/mapper.test.ts`**
 
 ```typescript
 import { describe, it, expect } from 'vitest';
@@ -377,12 +377,12 @@ describe('mapSearchResponse', () => {
 });
 ```
 
-- [ ] **Step 3: Run the tests to verify they fail**
+- [x] **Step 3: Run the tests to verify they fail**
 
 Run: `npx vitest run test/mapper.test.ts`
 Expected: FAIL — `Cannot find module '../src/mapper.js'` (module doesn't exist yet).
 
-- [ ] **Step 4: Create `src/mapper.ts`**
+- [x] **Step 4: Create `src/mapper.ts`**
 
 ```typescript
 import type { PrimoDoc, PrimoSearchResponse, MappedResult, SearchOneSearchResult } from './types.js';
@@ -451,12 +451,12 @@ export function mapSearchResponse(response: PrimoSearchResponse): SearchOneSearc
 }
 ```
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [x] **Step 5: Run the tests to verify they pass**
 
 Run: `npx vitest run test/mapper.test.ts`
 Expected: PASS (6 tests).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add test/fixtures/primo-search-response.json test/mapper.test.ts src/mapper.ts
@@ -475,7 +475,7 @@ git commit -m "feat: add Primo result mapper with fixture-backed tests"
 - Consumes: `SearchOneSearchParams`, `PrimoDoc`, `PrimoSearchResponse` from `src/types.ts` (Task 1).
 - Produces: `buildFacetClause(params: SearchOneSearchParams): string`, `buildSearchParams(params: SearchOneSearchParams): URLSearchParams`, `searchOneSearch(params: SearchOneSearchParams): Promise<PrimoSearchResponse>`, `getRecord(recordId: string): Promise<PrimoDoc | null>`, all exported from `src/primoClient.ts` — used by `src/index.ts` (Task 4).
 
-- [ ] **Step 1: Write the failing tests in `test/primoClient.test.ts`**
+- [x] **Step 1: Write the failing tests in `test/primoClient.test.ts`**
 
 ```typescript
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -587,12 +587,12 @@ describe('getRecord', () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `npx vitest run test/primoClient.test.ts`
 Expected: FAIL — `Cannot find module '../src/primoClient.js'`.
 
-- [ ] **Step 3: Create `src/primoClient.ts`**
+- [x] **Step 3: Create `src/primoClient.ts`**
 
 ```typescript
 import type { PrimoDoc, PrimoSearchResponse, SearchOneSearchParams } from './types.js';
@@ -690,12 +690,12 @@ export async function getRecord(recordId: string): Promise<PrimoDoc | null> {
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `npx vitest run test/primoClient.test.ts`
 Expected: PASS (11 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/primoClient.ts test/primoClient.test.ts
@@ -714,7 +714,7 @@ git commit -m "feat: add Primo HTTP client with facet-conflict validation"
 - Consumes: `searchOneSearch`, `getRecord` from `src/primoClient.ts` (Task 3); `mapSearchResponse`, `mapDoc` from `src/mapper.ts` (Task 2).
 - Produces: `createServer(): McpServer`, exported from `src/index.ts` — the MCP server factory, used directly by tests and by the `main()` entrypoint in the same file.
 
-- [ ] **Step 1: Write the failing tests in `test/index.test.ts`**
+- [x] **Step 1: Write the failing tests in `test/index.test.ts`**
 
 ```typescript
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -813,12 +813,12 @@ describe('MCP server tools', () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `npx vitest run test/index.test.ts`
 Expected: FAIL — `Cannot find module '../src/index.js'`.
 
-- [ ] **Step 3: Create `src/index.ts`**
+- [x] **Step 3: Create `src/index.ts`**
 
 ```typescript
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -901,17 +901,17 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `npx vitest run test/index.test.ts`
 Expected: PASS (4 tests).
 
-- [ ] **Step 5: Run the full test suite**
+- [x] **Step 5: Run the full test suite**
 
 Run: `npm test`
 Expected: PASS (all tests across all files).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/index.ts test/index.test.ts
@@ -929,7 +929,7 @@ git commit -m "feat: wire search_onesearch and get_record MCP tools"
 **Interfaces:**
 - Consumes: `searchOneSearch`, `getRecord` from `dist/primoClient.js` (the built output of Task 3) — this script runs against compiled JS, not source, since it's a plain Node script with no TypeScript loader.
 
-- [ ] **Step 1: Create `scripts/smoke-test.mjs`**
+- [x] **Step 1: Create `scripts/smoke-test.mjs`**
 
 ```javascript
 import { searchOneSearch, getRecord } from '../dist/primoClient.js';
@@ -959,12 +959,12 @@ main().catch((err) => {
 });
 ```
 
-- [ ] **Step 2: Build and run the smoke test manually**
+- [x] **Step 2: Build and run the smoke test manually**
 
 Run: `npm run build && node scripts/smoke-test.mjs`
 Expected: prints a non-zero total result count, a real book/article title, and (usually) an availability string — confirming the live endpoint still behaves as this plan assumes. This step depends on an external, unofficial service and is not part of `npm test` / CI.
 
-- [ ] **Step 3: Update `README.md`**
+- [x] **Step 3: Update `README.md`**
 
 ```markdown
 # NEU-OneSearch-MCP
@@ -1027,7 +1027,7 @@ npm run build && node scripts/smoke-test.mjs
 ```
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add scripts/smoke-test.mjs README.md
