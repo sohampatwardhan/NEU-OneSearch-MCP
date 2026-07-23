@@ -11,7 +11,11 @@ async function fetchPrimo(params: URLSearchParams): Promise<PrimoSearchResponse>
   if (!response.ok) {
     throw new Error(`OneSearch request failed: HTTP ${response.status}`);
   }
-  return response.json() as Promise<PrimoSearchResponse>;
+  try {
+    return (await response.json()) as PrimoSearchResponse;
+  } catch {
+    throw new Error('OneSearch returned an unparseable response');
+  }
 }
 
 export function buildFacetClause(params: SearchOneSearchParams): string {
@@ -89,5 +93,5 @@ export async function getRecord(recordId: string): Promise<PrimoDoc | null> {
     vid: VID,
   });
   const response = await fetchPrimo(params);
-  return response.docs[0] ?? null;
+  return response.docs?.[0] ?? null;
 }

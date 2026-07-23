@@ -104,4 +104,34 @@ describe('getRecord', () => {
     const result = await getRecord('alma999');
     expect(result).toBeNull();
   });
+
+  it('returns null defensively when docs field is missing', async () => {
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: async () => ({ info: { total: 0 } }),
+    });
+    const result = await getRecord('alma999');
+    expect(result).toBeNull();
+  });
+});
+
+describe('fetchPrimo', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('throws clear error when response.json() fails', async () => {
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: async () => {
+        throw new SyntaxError('Unexpected token');
+      },
+    });
+    await expect(searchOneSearch({ query: 'test' })).rejects.toThrow(
+      'OneSearch returned an unparseable response'
+    );
+  });
 });
