@@ -27,7 +27,7 @@
 **Interfaces:**
 - Produces: `SESSION_PATH: string` (the resolved path `~/.neu-onesearch-mcp/session.json`) and `loadSession(path?: string): string | null`, both exported from `src/session.ts` — used by `src/primoClient.ts` (Task 2) and `src/login.ts` (Task 3).
 
-- [ ] **Step 1: Write the failing tests in `test/session.test.ts`**
+- [x] **Step 1: Write the failing tests in `test/session.test.ts`**
 
 ```typescript
 import { describe, it, expect, afterEach } from 'vitest';
@@ -93,12 +93,12 @@ describe('loadSession', () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `npx vitest run test/session.test.ts`
 Expected: FAIL — `Cannot find module '../src/session.js'`.
 
-- [ ] **Step 3: Create `src/session.ts`**
+- [x] **Step 3: Create `src/session.ts`**
 
 ```typescript
 import { readFileSync } from 'node:fs';
@@ -139,12 +139,12 @@ export function loadSession(path: string = SESSION_PATH): string | null {
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `npx vitest run test/session.test.ts`
 Expected: PASS (6 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/session.ts test/session.test.ts
@@ -163,7 +163,7 @@ git commit -m "feat: add session file reader for stored NEU login cookies"
 - Consumes: `loadSession` from `src/session.ts` (Task 1).
 - Produces: no new exports — `fetchPrimo` (private) now attaches a `Cookie` header when `loadSession()` returns a value; `searchOneSearch`/`getRecord`'s public signatures are unchanged.
 
-- [ ] **Step 1: Write the failing tests in `test/primoClient.test.ts`**
+- [x] **Step 1: Write the failing tests in `test/primoClient.test.ts`**
 
 Add this import at the top of the file (alongside the existing imports):
 
@@ -242,12 +242,12 @@ describe('fetchPrimo cookie attachment', () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `npx vitest run test/primoClient.test.ts`
 Expected: FAIL — the new assertions fail because `fetchPrimo` doesn't yet call `loadSession()` or pass any `headers` option, so `options` is `undefined` in all three new tests (the first two tests fail on the `toEqual`/`toBeUndefined` mismatch for the header-attaching case; the third fails the same way).
 
-- [ ] **Step 3: Update `src/primoClient.ts`**
+- [x] **Step 3: Update `src/primoClient.ts`**
 
 Add this import (alongside the existing `import type` line at the top):
 
@@ -293,17 +293,17 @@ async function fetchPrimo(params: URLSearchParams): Promise<PrimoSearchResponse>
 
 (Every other function in `primoClient.ts` — `buildFacetClause`, `buildSearchParams`, `searchOneSearch`, `getRecord`, `CAMPUS_SCOPES` — is unchanged.)
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `npx vitest run test/primoClient.test.ts`
 Expected: PASS (24 tests: the pre-existing 21 plus the 3 new cookie-attachment tests).
 
-- [ ] **Step 5: Run the full test suite**
+- [x] **Step 5: Run the full test suite**
 
 Run: `npm test`
 Expected: PASS (all tests, zero failures).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/primoClient.ts test/primoClient.test.ts
@@ -323,7 +323,7 @@ git commit -m "feat: attach stored session cookies to OneSearch requests"
 - Consumes: `SESSION_PATH` from `src/session.ts` (Task 1).
 - Produces: nothing consumed by other source files — `login.ts` is a standalone entrypoint, run directly as `node dist/login.js`.
 
-- [ ] **Step 1: Add the `playwright` dependency to `package.json`**
+- [x] **Step 1: Add the `playwright` dependency to `package.json`**
 
 In the `"dependencies"` block, add `playwright` alongside the existing two:
 
@@ -337,12 +337,12 @@ In the `"dependencies"` block, add `playwright` alongside the existing two:
 
 (Every other field in `package.json` is unchanged.)
 
-- [ ] **Step 2: Install the new dependency**
+- [x] **Step 2: Install the new dependency**
 
 Run: `npm install`
 Expected: installs without error, adds `playwright` and its browser-binary-download postinstall step. If the postinstall browser download is skipped/fails in this environment (e.g. no network), that's fine for now — it only matters when actually running `login.ts` interactively later.
 
-- [ ] **Step 3: Create `src/login.ts`**
+- [x] **Step 3: Create `src/login.ts`**
 
 ```typescript
 import { chromium } from 'playwright';
@@ -379,7 +379,7 @@ main().catch((err) => {
 });
 ```
 
-- [ ] **Step 4: Build and verify it compiles**
+- [x] **Step 4: Build and verify it compiles**
 
 Run: `npm run build`
 Expected: compiles without error, produces `dist/login.js`.
@@ -391,7 +391,7 @@ Expected: a real Chromium window opens to NEU's OneSearch login page; after comp
 
 This step depends on real NEU credentials and is not part of `npm test` / CI, matching the pattern already established for `scripts/smoke-test.mjs`.
 
-- [ ] **Step 6: Update `README.md`**
+- [x] **Step 6: Update `README.md`**
 
 Add a new section (place it after the existing "Add to Claude Desktop / Claude Code" section, before "Tools"):
 
@@ -417,7 +417,7 @@ Sessions are not currently auto-detected as expired — if results seem off
 after a while, re-run `node dist/login.js`.
 ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add package.json package-lock.json src/login.ts README.md
