@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `get_full_text(doi?, recordId?)` downloads one entitled item through NEU
+  EZproxy and returns extracted plain text (PDF text layer or HTML), plus
+  source URL, content type, and page count. It requires an EZproxy cookie
+  from `node dist/login.js`. Login now continues into the library proxy
+  after OneSearch SSO so that cookie is captured. The password is still
+  entered only in the browser.
+- Caps and explicit statuses for the cases that are not full text:
+  `login_required`, `not_entitled`, `partial`, `unsupported` (CAPTCHA,
+  scanned/encrypted PDF, non-HTML binary), `too_large` (20 MB), and
+  truncation at 40 PDF pages / 100,000 characters. The download cap is
+  20 MiB (20,971,520 bytes).
+- `NEU_ONESEARCH_SESSION_PATH` to move the session file. No env var accepts
+  a password or a raw cookie.
+- `scripts/fulltext-smoke.mjs` for a manual signed-in check. It is not part
+  of `npm test` and does not embed a session.
+
 - `doiUrl` field on every mapped result (`https://doi.org/<doi>`, `null` if
   no DOI present). Unlike `catalogUrl`, which points at the OneSearch
   discovery record and can show a sign-in wall for CDI-sourced records when
@@ -22,13 +38,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- `node dist/login.js` opens EZproxy after OneSearch sign-in and reports
+  whether an EZproxy cookie was saved.
 - Corrected the README's claim that logging in "may improve full-text/
   entitlement access." Live testing (a real login, verified against three
   catalog items including one with a full-text proxy link) found no
   observable difference in `search_onesearch`/`get_record` results between a
-  valid session, an invalidated session, and no session at all. Login exists
-  as groundwork for future patron-identity features, not because it changes
-  today's search results.
+  valid session, an invalidated session, and no session at all. That is
+  still true for those two tools. Entitled article text is `get_full_text`,
+  which uses the EZproxy cookie rather than the OneSearch session.
 
 ## [0.1.0] - 2026-07-22
 

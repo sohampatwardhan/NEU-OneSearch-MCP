@@ -136,3 +136,42 @@ sign-off to take it on as its own project. `README.md` reflects the current
 honest status: login exists as groundwork for future patron-identity
 features (favorites, requesting, account info), not because it currently
 improves anything `search_onesearch`/`get_record` return.
+
+## Addendum (2026-10-19): full text is an EZproxy fetch, not a Primo cookie
+
+The finding above still holds for `search_onesearch` and `get_record`.
+Entitled article bytes are not in those JSON payloads. NEU documents the
+library prefix `https://link.ezproxy.neu.edu/login?url=<target>` (the same
+shape as Primo `linktorsrc` links and the library bookmarklet). A live
+anonymous request to that URL, and to `https://doi-org.ezproxy.neu.edu/<doi>`,
+returns HTTP 302 to `login.ezproxy.neu.edu`, whose HTML offers "Authenticate
+with Northeastern credentials" (`auth=shibbolethNU`). After that SAML login,
+EZproxy sets its own cookie (parent domain `.ezproxy.neu.edu`). Replaying
+that cookie is what reaches the publisher. The OneSearch `JSESSIONID` is not.
+
+`get_full_text` therefore:
+
+1. Builds `https://link.ezproxy.neu.edu/login?url=https://doi.org/<doi>`
+   (or the catalog record's existing proxy link when an `alma` id has no DOI).
+2. Sends only cookies scoped to `ezproxy.neu.edu`. Cookies for
+   `.northeastern.edu`, OneSearch, or the NU IT IdP are not attached.
+3. Follows redirects manually and stops if the next host is outside
+   `*.ezproxy.neu.edu`, so the session is not sent to the IdP or to a
+   publisher's bare hostname. Node's `fetch` would also drop a manual
+   `Cookie` header on cross-host redirects, which would break EZproxy's
+   subdomain hops even when the cookie is valid.
+4. Prefers a PDF linked from `citation_pdf_url` (or a PDF `link` / anchor),
+   fetched again through the same prefix. Otherwise it extracts visible HTML
+   text. pdf.js reads the PDF text layer. Caps: 20 MB, 40 pages, 100,000
+   characters.
+
+`node dist/login.js` still starts at OneSearch, then navigates to the proxy
+probe DOI so the saved `storageState()` includes the EZproxy cookie.
+`storageState()` is sufficient here because EZproxy's credential is a cookie,
+unlike the OneSearch JWT that lived only in `sessionStorage`.
+
+Not solved, and documented as such: publisher pages that render the body only
+after JavaScript, CAPTCHAs, scanned PDFs, DRM, hosts EZproxy will not proxy,
+and items NEU has not licensed. No live authenticated download was run in
+CI. The unit tests mock the proxy. `scripts/fulltext-smoke.mjs` is the
+manual check.
