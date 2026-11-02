@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Published to npm as `@sohampatwardhan/neu-onesearch-mcp`, runnable with
+  `npx -y @sohampatwardhan/neu-onesearch-mcp@latest`. A second bin,
+  `neu-onesearch-login`, runs the optional NEU login.
+- CI workflow (typecheck, build, tests, pack check) and a tag-triggered
+  release workflow that publishes to npm via trusted publishing with
+  provenance and mirrors the release to GitHub Packages.
+
 - `doiUrl` field on every mapped result (`https://doi.org/<doi>`, `null` if
   no DOI present). Unlike `catalogUrl`, which points at the OneSearch
   discovery record and can show a sign-in wall for CDI-sourced records when
@@ -29,6 +36,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   valid session, an invalidated session, and no session at all. Login exists
   as groundwork for future patron-identity features, not because it changes
   today's search results.
+- The server reports its version from `package.json` instead of a
+  hard-coded `0.1.0`.
+
+### Fixed
+
+- The server now starts when launched through a symlink (the
+  `node_modules/.bin` shim that `npx` and global installs use). The old
+  entrypoint check compared `import.meta.url` with the raw `argv[1]` path, so
+  a symlinked launch exited immediately without serving.
 
 ## [0.1.0] - 2026-07-22
 
