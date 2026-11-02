@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { chromium } from 'playwright';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';

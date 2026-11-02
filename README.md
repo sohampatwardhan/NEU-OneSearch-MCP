@@ -1,19 +1,83 @@
 # Northeastern University Scholar OneSearch MCP for Claude
 
+[![npm version](https://img.shields.io/npm/v/@sohampatwardhan/neu-onesearch-mcp.svg)](https://www.npmjs.com/package/@sohampatwardhan/neu-onesearch-mcp)
+
 An MCP server for [Northeastern University's Scholar OneSearch](https://onesearch.library.northeastern.edu).
 Lets Claude search NEU's library catalog and article databases for academic references.
 
 Search works fully anonymously — an optional login exists (see "Logging in" below), but see that section for what it does and doesn't currently do.
 See `docs/superpowers/specs/2026-07-22-onesearch-mcp-design.md` and `docs/superpowers/specs/2026-07-22-onesearch-auth-design.md` for the full design and research behind this.
 
-## Setup
+## Install
+
+The package on npm is `@sohampatwardhan/neu-onesearch-mcp`.
+MCP clients start it over stdio:
+
+```sh
+npx -y @sohampatwardhan/neu-onesearch-mcp@latest
+```
+
+Requires Node.js 20 or later.
+The published bin is `neu-onesearch-mcp` (`#!/usr/bin/env node`).
+Stdio is the only transport, and the MCP server name is `neu-onesearch-mcp`.
+Normally the MCP client launches it, so you don't run it by hand.
+
+### Claude Code
+
+```bash
+claude mcp add --scope user neu-onesearch -- npx -y @sohampatwardhan/neu-onesearch-mcp@latest
+```
+
+### Codex CLI
+
+```bash
+codex mcp add neu-onesearch -- npx -y @sohampatwardhan/neu-onesearch-mcp@latest
+```
+
+### Claude Desktop
+
+Add this to the desktop config, then restart Claude Desktop:
+
+- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "neu-onesearch": {
+      "command": "npx",
+      "args": ["-y", "@sohampatwardhan/neu-onesearch-mcp@latest"]
+    }
+  }
+}
+```
+
+### Generic stdio
+
+Any MCP client that launches a local process uses the same command.
+Field names vary (`mcpServers` vs `servers`, and some clients omit `type`).
+Antigravity takes this entry in `mcp_config.json` (MCP store → "Manage MCP Servers" → "View raw config").
+
+```json
+{
+  "mcpServers": {
+    "neu-onesearch": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@sohampatwardhan/neu-onesearch-mcp@latest"]
+    }
+  }
+}
+```
+
+## Install from a checkout
+
+To run from a clone of this repo instead of npm:
 
 ```bash
 npm install
 npm run build
 ```
-
-## Install into Claude Code / Claude Desktop / Codex CLI
 
 `npm run install-mcp` registers the server with whichever of Claude Code, Claude Desktop, and Codex CLI are installed on your machine — Mac, Linux, and Windows are all supported (Claude Desktop is skipped on Linux since Anthropic doesn't ship a Linux build there).
 Each target is detected independently, so anything not installed is skipped rather than failing the run, and it's safe to re-run — it updates the existing entry instead of duplicating it.
@@ -60,7 +124,16 @@ Antigravity has no CLI or documented config path, so it isn't handled by `instal
 ## Logging in (optional, no current effect on search results)
 
 Search works fully anonymously with no login.
-`node dist/login.js` drives a real browser through NEU's actual SSO login and saves the resulting session for `search_onesearch`/`get_record` to attach automatically:
+The `neu-onesearch-login` command drives a real browser through NEU's actual SSO login and saves the resulting session for `search_onesearch`/`get_record` to attach automatically.
+It opens your installed Google Chrome, so Chrome must be installed.
+
+From npm:
+
+```bash
+npx -y -p @sohampatwardhan/neu-onesearch-mcp@latest neu-onesearch-login
+```
+
+From a checkout:
 
 ```bash
 npm run build
@@ -94,9 +167,13 @@ Each mapped result includes `catalogUrl`, `doiUrl`, and `ezproxyDoiUrl` (the lat
 ## Development
 
 ```bash
-npm run dev    # run the server directly via tsx, for manual stdio testing
-npm test       # run the automated test suite
+npm run dev        # run the server directly via tsx, for manual stdio testing
+npm start          # run the built server: node dist/index.js
+npm run typecheck  # tsc --noEmit
+npm test           # run the automated test suite
 ```
+
+CI (`.github/workflows/ci.yml`) runs typecheck, build, tests, and `npm pack --dry-run` on every push and pull request.
 
 ## Manual live smoke test
 
@@ -105,6 +182,57 @@ Hits the real OneSearch endpoint — not part of `npm test`, run manually to con
 ```bash
 npm run build && node scripts/smoke-test.mjs
 ```
+
+## Releasing
+
+Releases publish from `v*` tags through `.github/workflows/release.yml`, using npm trusted publishing (GitHub OIDC, no `NPM_TOKEN`) with provenance, and mirror the same version to GitHub Packages.
+
+### First publish (one time)
+
+npm can only attach a trusted publisher to a package that already exists on the registry, so the owner publishes the first version once from a maintainer machine:
+
+```sh
+npm login
+npm ci
+npm publish --access public
+```
+
+Leave `--provenance` off for that local publish.
+Provenance is added by the GitHub Actions workflow, which has the OIDC token.
+Don't push a tag for that version: the workflow would try to publish it again.
+
+Then, on npmjs.com, open `@sohampatwardhan/neu-onesearch-mcp` → Settings → Trusted publishing, choose GitHub Actions, and enter:
+
+| Field | Value |
+| --- | --- |
+| Organization or user | `sohampatwardhan` |
+| Repository | `NEU-OneSearch-MCP` |
+| Workflow filename | `release.yml` |
+| Environment name | empty |
+
+The filename is `release.yml` only, not `.github/workflows/release.yml`.
+Allow direct `npm publish`: a publisher created after 3 September 2026 starts with only `npm stage publish` allowed.
+Leave dist-tag management off.
+The same link can be created with npm CLI 11.15.0 or newer (2FA must be enabled on the account):
+
+```sh
+npm trust github @sohampatwardhan/neu-onesearch-mcp \
+  --repo sohampatwardhan/NEU-OneSearch-MCP \
+  --file release.yml \
+  --allow-publish
+```
+
+The first publish from the workflow has to succeed within two days of saving the publisher, or the configuration expires.
+
+### Later releases
+
+```sh
+npm version patch   # or minor, or major
+git push --follow-tags
+```
+
+`npm version` writes the version and a `vX.Y.Z` tag.
+The release workflow runs on that tag (or on a manual run that names the tag), refuses the job when the tag is not `v` plus the `package.json` version, runs `npm ci`, typecheck, build, and tests, publishes with `npm publish --provenance --access public`, opens a GitHub Release with generated notes, and then publishes the same version to GitHub Packages.
 
 ## Changelog
 

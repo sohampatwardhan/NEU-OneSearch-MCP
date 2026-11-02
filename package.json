@@ -1,31 +1,65 @@
 {
-  "name": "neu-onesearch-mcp",
+  "name": "@sohampatwardhan/neu-onesearch-mcp",
   "version": "0.1.0",
-  "description": "MCP server for Northeastern University Scholar OneSearch",
+  "description": "MCP server for Northeastern University Scholar OneSearch: search NEU's library catalog and article databases from Claude and other MCP clients.",
   "license": "MIT",
+  "author": "Soham Patwardhan",
+  "homepage": "https://github.com/sohampatwardhan/NEU-OneSearch-MCP#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sohampatwardhan/NEU-OneSearch-MCP.git"
+  },
+  "bugs": {
+    "url": "https://github.com/sohampatwardhan/NEU-OneSearch-MCP/issues"
+  },
   "type": "module",
-  "main": "dist/index.js",
   "bin": {
-    "neu-onesearch-mcp": "dist/index.js"
+    "neu-onesearch-mcp": "dist/index.js",
+    "neu-onesearch-login": "dist/login.js"
+  },
+  "files": [
+    "dist/**/*.js",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "scripts": {
-    "build": "tsc",
+    "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
+    "build": "npm run clean && tsc -p tsconfig.json && node -e \"for (const f of ['dist/index.js', 'dist/login.js']) require('node:fs').chmodSync(f, 0o755)\"",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepack": "npm run build",
+    "prepublishOnly": "npm run typecheck && npm test",
+    "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
     "test": "vitest run",
     "install-mcp": "node scripts/install-mcp.mjs"
   },
-  "engines": {
-    "node": ">=18.0.0"
-  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "northeastern",
+    "neu",
+    "onesearch",
+    "primo",
+    "library",
+    "academic-search",
+    "claude"
+  ],
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "playwright": "^1.61.1",
     "zod": "^3.25.0"
   },
   "devDependencies": {
-    "typescript": "^5.5.0",
+    "@types/node": "^20.14.0",
     "tsx": "^4.16.0",
-    "vitest": "^2.0.0",
-    "@types/node": "^20.14.0"
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
   }
 }

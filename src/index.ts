@@ -1,11 +1,18 @@
+#!/usr/bin/env node
+import { realpathSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { searchOneSearch, getRecord } from './primoClient.js';
 import { mapSearchResponse, mapDoc } from './mapper.js';
 
+// package.json sits one level above both src/ and dist/, so this resolves in tests and in the published package.
+const { version } = createRequire(import.meta.url)('../package.json') as { version: string };
+
 export function createServer(): McpServer {
-  const server = new McpServer({ name: 'neu-onesearch-mcp', version: '0.1.0' });
+  const server = new McpServer({ name: 'neu-onesearch-mcp', version });
 
   server.registerTool(
     'search_onesearch',
@@ -77,6 +84,20 @@ async function main() {
   await server.connect(transport);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
-  main();
+// npm runs bins through a symlink (node_modules/.bin, npx), so compare real paths rather than raw argv[1].
+function isEntrypoint(): boolean {
+  const invoked = process.argv[1];
+  if (!invoked) return false;
+  try {
+    return realpathSync(invoked) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (isEntrypoint()) {
+  main().catch((err) => {
+    console.error('neu-onesearch-mcp failed to start:', err);
+    process.exit(1);
+  });
 }
