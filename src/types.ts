@@ -77,6 +77,7 @@ export interface PrimoDoc {
     display?: PrimoDisplay;
     control?: PrimoControl;
     addata?: PrimoAddata;
+    links?: { linktopdf?: string[]; linktohtml?: string[]; linktorsrc?: string[] };
   };
   delivery?: PrimoDelivery;
 }

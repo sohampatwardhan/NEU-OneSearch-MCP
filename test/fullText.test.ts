@@ -392,6 +392,34 @@ describe('getFullText', () => {
     expect(result.status).toBe('ok');
   });
 
+  it('cdi_ record without a DOI uses its linktopdf through EZproxy', async () => {
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        pnx: {
+          control: { recordid: ['cdi_proquest_journals_216114114'] },
+          links: { linktopdf: ['$$Uhttps://www.proquest.com/docview/216114114/fulltextPDF?pq-origsite=primo$$EPDF$$Gproquest'] },
+        },
+      }),
+    });
+    const fetchImpl = vi.fn(async () => pdfResponse());
+    await getFullText({ recordId: 'cdi_proquest_journals_216114114' }, { fetchImpl, sessionPath: ezproxySession() });
+    const firstUrl = String((fetchImpl.mock.calls[0] as unknown[])[0]);
+    expect(firstUrl.startsWith('https://link.ezproxy.neu.edu/login?qurl=')).toBe(true);
+    expect(firstUrl).toContain('proquest');
+  });
+
+  it('cdi_ record with neither DOI nor link is unsupported with a clear message', async () => {
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: async () => ({ pnx: { control: { recordid: ['cdi_x_1'] } } }),
+    });
+    const fetchImpl = vi.fn();
+    const result = await getFullText({ recordId: 'cdi_x_1' }, { fetchImpl, sessionPath: ezproxySession() });
+    expect(result.status).toBe('unsupported');
+    expect(result.message).toMatch(/no DOI or full-text link/);
+  });
+
   it('never names get_record in a get_full_text error', async () => {
     const fetchImpl = vi.fn();
     const result = await getFullText({ recordId: 'pq_1' }, { fetchImpl, sessionPath: ezproxySession() });

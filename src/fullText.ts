@@ -170,7 +170,7 @@ function targetFromMapped(mapped: MappedResult, recordId: string): ResolvedTarge
     recordId,
     title: mapped.title,
     doi: mapped.doi,
-    message: 'This catalog record has no DOI or EZproxy full-text link to retrieve.',
+    message: 'This record has no DOI or full-text link to retrieve.',
   });
 }
 
