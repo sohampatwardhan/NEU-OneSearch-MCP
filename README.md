@@ -13,17 +13,26 @@ and the spec in `.kiro/specs/shibboleth-auth/`, for the full design and research
 
 ## Install
 
-The package on npm is `@sohampatwardhan/neu-onesearch-mcp`.
-MCP clients start it over stdio:
+The server is published on npm as [`@sohampatwardhan/neu-onesearch-mcp`](https://www.npmjs.com/package/@sohampatwardhan/neu-onesearch-mcp),
+so there is nothing to clone or build. Your MCP client runs it with `npx`:
 
 ```sh
 npx -y @sohampatwardhan/neu-onesearch-mcp@latest
 ```
 
-Requires Node.js 20 or later.
-The published bin is `neu-onesearch-mcp` (`#!/usr/bin/env node`).
-Stdio is the only transport, and the MCP server name is `neu-onesearch-mcp`.
-Normally the MCP client launches it, so you don't run it by hand.
+Requires Node.js 20 or later. Stdio is the only transport, and the MCP server name is `neu-onesearch-mcp`.
+Normally the MCP client launches it, so you don't run it by hand. `@latest` makes `npx` pick up new
+releases when the client restarts.
+
+Quick start:
+
+1. Add the server to your client using one of the snippets below, then restart the client.
+2. Search works straight away, anonymously.
+3. Optionally sign in once for features that need a Northeastern session (see [Signing in](#signing-in)):
+
+   ```bash
+   npx -y -p @sohampatwardhan/neu-onesearch-mcp@latest neu-onesearch-login
+   ```
 
 ### Claude Code
 
@@ -43,6 +52,21 @@ Add this to the desktop config, then restart Claude Desktop:
 
 - macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
 - Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "neu-onesearch": {
+      "command": "npx",
+      "args": ["-y", "@sohampatwardhan/neu-onesearch-mcp@latest"]
+    }
+  }
+}
+```
+
+### Kiro and Cursor
+
+Add the same entry to `~/.kiro/settings/mcp.json` (Kiro) or `~/.cursor/mcp.json` (Cursor):
 
 ```json
 {
@@ -75,7 +99,7 @@ Antigravity takes this entry in `mcp_config.json` (MCP store → "Manage MCP Ser
 
 ## Install from a checkout
 
-To run from a clone of this repo instead of npm:
+Only needed for development, or to try unreleased changes. To run from a clone of this repo instead of npm:
 
 ```bash
 npm install
@@ -182,9 +206,19 @@ IdP session is still alive is usually one click or one Duo push, with no passwor
 
 ### Signing out
 
+From npm:
+
 ```bash
-node dist/logout.js    # or: neu-onesearch-logout
+npx -y -p @sohampatwardhan/neu-onesearch-mcp@latest neu-onesearch-logout
 ```
+
+From a checkout:
+
+```bash
+node dist/logout.js
+```
+
+`neu-onesearch-logout` ships in the first release after 0.1.2; on 0.1.2, delete `~/.cache/neu-onesearch-mcp/` by hand.
 
 This deletes `session.json` and the `profile/` directory. It is safe to run when you are already
 signed out. After logout, a tool that needs the session returns `login_required`.
