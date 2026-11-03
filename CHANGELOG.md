@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Open-access full text for publishers that are not on NEU's EZproxy.
+  `get_full_text` fetches the publisher page and its `citation_pdf_url`
+  directly, without session cookies. If that fails, a new `not_proxied` status
+  returns the publisher URL in `sourceUrl`. Each direct hop must be http(s) and
+  resolve only to public addresses.
+- The SSRF host guard also blocks carrier-grade NAT (`100.64.0.0/10`, used by
+  VPN overlays such as Tailscale) and multicast or reserved addresses.
+
 ### Fixed
 
 - `get_full_text` returned `login_required` even with a valid EZproxy session.
@@ -18,6 +28,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - A landing on EZproxy's `/menu` page is reported as an `error` saying the
   proxy did not accept the target, instead of telling the user to sign in
   again.
+- `get_full_text` returned `login_required` for publishers NEU's EZproxy does
+  not proxy. EZproxy passes those through to the publisher (for example
+  `doi-org.ezproxy.neu.edu` -> `dx.plos.org` for PLOS), and any redirect off the
+  proxy was treated as a sign-in bounce. Now only a redirect to an NEU sign-in
+  host (`neuidmsso.neu.edu`, Shibboleth, Duo) means `login_required`. Session
+  cookies are still never sent off the proxy.
 
 ## [0.2.0] - 2026-11-02
 

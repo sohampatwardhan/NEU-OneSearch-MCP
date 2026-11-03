@@ -11,7 +11,9 @@ import {
   isEzproxyMenuPage,
   absorbSetCookie,
   fetchEzproxyResource,
+  fetchPublicResource,
 } from '../src/ezproxy.js';
+import { isSignInHostname } from '../src/auth.js';
 import { vi } from 'vitest';
 import type { StoredCookie } from '../src/session.js';
 
@@ -92,6 +94,13 @@ describe('isBlockedHostname', () => {
       expect(isBlockedHostname(h)).toBe(true);
     }
   });
+  it('blocks carrier-grade NAT, multicast, and reserved ranges', () => {
+    for (const h of ['100.64.0.1', '100.100.100.100', '100.127.255.254', '224.0.0.1', '255.255.255.255', 'ff02::1']) {
+      expect(isBlockedHostname(h)).toBe(true);
+    }
+    expect(isBlockedHostname('100.63.0.1')).toBe(false);
+    expect(isBlockedHostname('100.128.0.1')).toBe(false);
+  });
   it('does not block public IPv6 or an IPv4-mapped public address', () => {
     expect(isBlockedHostname('2606:4700::1111')).toBe(false);
     expect(isBlockedHostname('::ffff:8.8.8.8')).toBe(false);
@@ -166,13 +175,41 @@ describe('fetchEzproxyResource', () => {
     expect((init.headers as Record<string, string>).Cookie).toBe('ezproxy=SECRET');
   });
 
-  it('returns login_required on a redirect off the proxy, without sending the cookie there', async () => {
+  it('returns login_required on a redirect to the NEU IdP, without sending the cookie there', async () => {
     const fetchImpl = vi.fn(async (url: string) => {
-      if (url.includes('login.northeastern.edu')) throw new Error('cookie reached off-proxy host');
-      return new Response(null, { status: 302, headers: { location: 'https://login.northeastern.edu/idp' } });
+      if (url.includes('neuidmsso.neu.edu')) throw new Error('cookie reached off-proxy host');
+      return new Response(null, { status: 302, headers: { location: 'https://neuidmsso.neu.edu/idp/profile/SAML2/Redirect/SSO' } });
     });
-    const result = await fetchEzproxyResource('https://link.ezproxy.neu.edu/login?url=x', ezJar, { fetchImpl });
+    const result = await fetchEzproxyResource('https://link.ezproxy.neu.edu/login?qurl=x', ezJar, { fetchImpl });
     expect(result.kind).toBe('login_required');
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns off_proxy when EZproxy passes an unproxied publisher through, without contacting it', async () => {
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url.includes('plos.org')) throw new Error('cookie reached off-proxy host');
+      if (url.startsWith('https://link.ezproxy.neu.edu/')) {
+        return new Response(null, { status: 302, headers: { location: 'https://doi-org.ezproxy.neu.edu/10.1371/journal.pone.0212767' } });
+      }
+      return new Response(null, { status: 302, headers: { location: 'https://dx.plos.org/10.1371/journal.pone.0212767' } });
+    });
+    const result = await fetchEzproxyResource('https://link.ezproxy.neu.edu/login?qurl=x', ezJar, { fetchImpl });
+    expect(result.kind).toBe('off_proxy');
+    if (result.kind !== 'off_proxy') return;
+    expect(result.offProxyUrl).toBe('https://dx.plos.org/10.1371/journal.pone.0212767');
+    expect(result.finalUrl).toBe('https://doi-org.ezproxy.neu.edu/10.1371/journal.pone.0212767');
+    expect(result.message).toMatch(/not on NEU's library proxy/);
+    expect(result.message).not.toContain('SECRET');
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it('refuses a plain-http redirect on the proxy instead of sending the cookie without TLS', async () => {
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url.startsWith('http:')) throw new Error('cookie sent over http');
+      return new Response(null, { status: 302, headers: { location: 'http://doi-org.ezproxy.neu.edu/10.1/x' } });
+    });
+    const result = await fetchEzproxyResource('https://link.ezproxy.neu.edu/login?qurl=x', ezJar, { fetchImpl });
+    expect(result.kind).toBe('error');
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
@@ -182,5 +219,67 @@ describe('fetchEzproxyResource', () => {
     );
     const result = await fetchEzproxyResource('https://link.ezproxy.neu.edu/x', ezJar, { fetchImpl, maxDownloadBytes: 10 });
     expect(result.kind).toBe('too_large');
+  });
+});
+
+describe('isSignInHostname', () => {
+  it('matches NEU IdP and Duo hosts but not publishers', () => {
+    expect(isSignInHostname('neuidmsso.neu.edu')).toBe(true);
+    expect(isSignInHostname('api-123.duosecurity.com')).toBe(true);
+    expect(isSignInHostname('dx.plos.org')).toBe(false);
+    expect(isSignInHostname('journals.plos.org')).toBe(false);
+  });
+});
+
+describe('fetchPublicResource', () => {
+  const publicLookup = async () => ['151.101.1.1'];
+
+  it('follows redirects and never sends a Cookie header', async () => {
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url.startsWith('https://dx.plos.org/')) {
+        return new Response(null, { status: 302, headers: { location: 'https://journals.plos.org/plosone/article?id=x' } });
+      }
+      return new Response('<html>article</html>', { status: 200, headers: { 'content-type': 'text/html' } });
+    });
+    const result = await fetchPublicResource('https://dx.plos.org/10.1371/x', { fetchImpl, lookupImpl: publicLookup });
+    expect(result.kind).toBe('response');
+    if (result.kind !== 'response') return;
+    expect(result.finalUrl).toBe('https://journals.plos.org/plosone/article?id=x');
+    expect(result.cookies).toEqual([]);
+    for (const [, init] of fetchImpl.mock.calls as [string, RequestInit][]) {
+      expect(init.headers as Record<string, string>).not.toHaveProperty('Cookie');
+    }
+  });
+
+  it('refuses a private literal host without fetching', async () => {
+    const fetchImpl = vi.fn();
+    const result = await fetchPublicResource('http://127.0.0.1/secret', { fetchImpl, lookupImpl: publicLookup });
+    expect(result.kind).toBe('error');
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('refuses a hostname that resolves to a private address', async () => {
+    const fetchImpl = vi.fn();
+    const result = await fetchPublicResource('https://rebind.example/x', {
+      fetchImpl,
+      lookupImpl: async () => ['93.184.216.34', '10.0.0.7'],
+    });
+    expect(result.kind).toBe('error');
+    if (result.kind === 'error') expect(result.message).toMatch(/private address/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('refuses a redirect to a private host', async () => {
+    const fetchImpl = vi.fn(
+      async () => new Response(null, { status: 302, headers: { location: 'http://169.254.169.254/latest/meta-data' } })
+    );
+    const result = await fetchPublicResource('https://publisher.example/x', { fetchImpl, lookupImpl: publicLookup });
+    expect(result.kind).toBe('error');
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses non-http schemes', async () => {
+    const result = await fetchPublicResource('file:///etc/passwd', { fetchImpl: vi.fn(), lookupImpl: publicLookup });
+    expect(result.kind).toBe('error');
   });
 });

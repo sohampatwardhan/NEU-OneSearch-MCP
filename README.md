@@ -261,11 +261,14 @@ implemented.
   | `ok` | Full text extracted. `via` is `pdf` or `html`; `text` holds the extracted content. |
   | `partial` | Some text, but likely an abstract/landing page or mixed with access-wall prompts. |
   | `login_required` | No usable EZproxy session (missing, OneSearch-only, expired, or rejected). Run `neu-onesearch-login` and finish the EZproxy step. No network request is made when the session is absent. |
+  | `not_proxied` | EZproxy passed the request through to a publisher it does not proxy (usually open access, such as PLOS), and a direct fetch of that page did not yield text. `sourceUrl` is the publisher URL to open. Signing in again will not help. |
   | `not_entitled` | A publisher access wall or HTTP 401/403 — NEU may not subscribe, or the publisher blocked the download. |
   | `not_found` | The record or proxied URL returned nothing (404). |
   | `too_large` | The download exceeded the size cap and was not parsed. |
   | `unsupported` | No DOI/full-text link, a non-text or image-only response, or a bot/CAPTCHA wall. This server does not OCR or solve CAPTCHAs. |
   | `error` | Bad input (no/invalid `doi` or non-`alma` `recordId`) or a transport failure. |
+
+  When EZproxy hands back an unproxied publisher URL, the tool fetches that page (and its `citation_pdf_url`) directly, with no session cookie, and returns `ok`/`partial` with a message saying so. Direct fetches only go to public http(s) hosts: every hop's hostname must resolve to public addresses only.
 
   Every result also carries `via`, `sourceUrl`, `title`, `truncated`, and `charCount`. Unlike `search_onesearch` and `get_record`, `get_full_text` requires a live EZproxy session — a OneSearch-only login does not unlock article downloads.
 

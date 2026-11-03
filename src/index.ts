@@ -98,7 +98,7 @@ export function createServer(): McpServer {
     'get_full_text',
     {
       description:
-        'Retrieve and extract the plain text of an article Northeastern subscribes to, fetched through the library EZproxy using the cached sign-in session. Pass a DOI (preferred) or an alma OneSearch record id. Requires a valid EZproxy session from `neu-onesearch-login`; returns status `login_required` when the session is missing or expired. Result statuses: ok, partial, login_required, not_entitled, not_found, too_large, unsupported, error.',
+        'Retrieve and extract the plain text of an article Northeastern subscribes to, fetched through the library EZproxy using the cached sign-in session. Pass a DOI (preferred) or an alma OneSearch record id. Requires a valid EZproxy session from `neu-onesearch-login`; returns status `login_required` when the session is missing or expired. Publishers the NEU proxy does not cover (usually open access) are fetched directly without the session; if that fails the status is `not_proxied` and `sourceUrl` is the publisher URL to open. Result statuses: ok, partial, login_required, not_proxied, not_entitled, not_found, too_large, unsupported, error.',
       inputSchema: {
         doi: z.string().optional().describe('Article DOI, or a https://doi.org/ URL (preferred input)'),
         recordId: z

@@ -5,6 +5,8 @@
  * pull the proxied article. Cookie scoping comes from `session.ts` (#5), which
  * is the single source of truth for which cookies reach which host.
  */
+import { lookup } from 'node:dns/promises';
+import { isSignInHostname } from './auth.js';
 import { cookieHeaderForHost, isEzproxyHostname, type StoredCookie } from './session.js';
 
 /** Canonical NEU library prefix. Primo `linktorsrc` links and the library bookmarklet use this host. */
@@ -30,8 +32,12 @@ export const FULL_TEXT_LIMITS = {
 
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
+/** Resolve a hostname to its IP addresses. Injected in tests so they make no DNS queries. */
+export type LookupLike = (hostname: string) => Promise<string[]>;
+
 export interface ProxyFetchOptions {
   fetchImpl?: FetchLike;
+  lookupImpl?: LookupLike;
   maxDownloadBytes?: number;
   maxRedirects?: number;
   timeoutMs?: number;
@@ -49,6 +55,8 @@ export type ProxyFetchResult =
       cookies: StoredCookie[];
     }
   | { kind: 'login_required'; finalUrl: string; message: string }
+  /** EZproxy handed the target back unproxied: the publisher is not on NEU's proxy. */
+  | { kind: 'off_proxy'; finalUrl: string; offProxyUrl: string; message: string }
   | { kind: 'too_large'; finalUrl: string; message: string }
   | { kind: 'error'; finalUrl: string | null; message: string };
 
@@ -111,6 +119,8 @@ export function isBlockedHostname(host: string): boolean {
   if (normalized === '::1' || normalized === '0.0.0.0' || normalized === '::') return true;
   if (/^fe[89ab][0-9a-f]:/i.test(normalized)) return true;
   if (/^f[cd][0-9a-f]{2}:/i.test(normalized)) return true;
+  // IPv6 multicast (ff00::/8).
+  if (/^ff[0-9a-f]{2}:/i.test(normalized)) return true;
 
   // IPv4-mapped IPv6. The URL parser compresses ::ffff:127.0.0.1 to the hex form
   // ::ffff:7f00:1, so fold the trailing two 16-bit groups back to dotted-quad
@@ -132,9 +142,13 @@ export function isBlockedHostname(host: string): boolean {
   if (parts.some((part) => part > 255)) return true;
   const [a, b] = parts;
   if (a === 0 || a === 10 || a === 127) return true;
+  // Carrier-grade NAT (100.64.0.0/10), which VPN overlays such as Tailscale use.
+  if (a === 100 && b >= 64 && b <= 127) return true;
   if (a === 169 && b === 254) return true;
   if (a === 172 && b >= 16 && b <= 31) return true;
   if (a === 192 && b === 168) return true;
+  // Multicast and reserved (224.0.0.0 and above).
+  if (a >= 224) return true;
   return false;
 }
 
@@ -323,13 +337,84 @@ function isRedirect(status: number): boolean {
   return status === 301 || status === 302 || status === 303 || status === 307 || status === 308;
 }
 
+type FetchError = Extract<ProxyFetchResult, { kind: 'error' }>;
+
+/** One manual-redirect GET. `peer` names the far end in timeout messages. */
+async function requestHop(
+  fetchImpl: FetchLike,
+  url: URL,
+  cookie: string | null,
+  remainingMs: number,
+  timeoutMs: number,
+  peer: string
+): Promise<Response | FetchError> {
+  try {
+    return await fetchImpl(url.href, {
+      method: 'GET',
+      redirect: 'manual',
+      cache: 'no-store',
+      headers: {
+        Accept: 'text/html,application/xhtml+xml,application/pdf;q=0.9,*/*;q=0.8',
+        'User-Agent': USER_AGENT,
+        ...(cookie ? { Cookie: cookie } : {}),
+      },
+      signal: AbortSignal.timeout(remainingMs),
+    });
+  } catch (err) {
+    const name = err instanceof Error ? err.name : '';
+    if (name === 'AbortError' || name === 'TimeoutError') {
+      return { kind: 'error', finalUrl: url.href, message: `Timed out after ${timeoutMs}ms contacting ${peer}.` };
+    }
+    const message = err instanceof Error ? err.message : 'Request failed';
+    return { kind: 'error', finalUrl: url.href, message };
+  }
+}
+
+function redirectTarget(response: Response, url: URL): URL | FetchError {
+  const location = response.headers.get('location');
+  if (!location) {
+    return { kind: 'error', finalUrl: url.href, message: 'The redirect was missing a Location header.' };
+  }
+  try {
+    return new URL(location, url);
+  } catch {
+    return { kind: 'error', finalUrl: url.href, message: 'The redirect Location was not a valid URL.' };
+  }
+}
+
+async function finalResponse(
+  response: Response,
+  url: URL,
+  maxBytes: number,
+  jar: StoredCookie[]
+): Promise<ProxyFetchResult> {
+  const contentType = response.headers.get('content-type') ?? '';
+  const body = await readLimitedBody(response, maxBytes);
+  if (body.tooLarge) {
+    return {
+      kind: 'too_large',
+      finalUrl: url.href,
+      message: `The response exceeded the ${maxBytes} byte download cap and was not parsed.`,
+    };
+  }
+  return {
+    kind: 'response',
+    finalUrl: url.href,
+    httpStatus: response.status,
+    contentType,
+    body: body.bytes,
+    cookies: jar,
+  };
+}
+
 /**
  * Fetch a proxied URL, following redirects only while they stay on `*.ezproxy.neu.edu`.
  * EZproxy hops between subdomains (`link` -> `login` -> a rewritten publisher host), and
  * Node's fetch drops a manually set Cookie header on cross-host redirects, so redirects
  * are followed here and the per-host cookie header is rebuilt by #5's `cookieHeaderForHost`.
- * A redirect off the proxy (usually NU IT sign-in) returns `login_required` and no cookie
- * is sent to that host.
+ * No cookie is ever sent off the proxy. A redirect to an NEU sign-in host returns
+ * `login_required`. A redirect to any other host returns `off_proxy`: EZproxy passes
+ * through targets it does not proxy (often open-access publishers such as PLOS).
  */
 export async function fetchEzproxyResource(
   startUrl: string,
@@ -375,77 +460,44 @@ export async function fetchEzproxyResource(
     }
 
     const cookie = cookieHeaderForHost(jar, url.hostname, url.pathname, nowMs);
-    let response: Response;
-    try {
-      response = await fetchImpl(url.href, {
-        method: 'GET',
-        redirect: 'manual',
-        cache: 'no-store',
-        headers: {
-          Accept: 'text/html,application/xhtml+xml,application/pdf;q=0.9,*/*;q=0.8',
-          'User-Agent': USER_AGENT,
-          ...(cookie ? { Cookie: cookie } : {}),
-        },
-        signal: AbortSignal.timeout(remaining),
-      });
-    } catch (err) {
-      const name = err instanceof Error ? err.name : '';
-      if (name === 'AbortError' || name === 'TimeoutError') {
-        return {
-          kind: 'error',
-          finalUrl: url.href,
-          message: `Timed out after ${timeoutMs}ms contacting the library proxy.`,
-        };
-      }
-      const message = err instanceof Error ? err.message : 'Proxy request failed';
-      return { kind: 'error', finalUrl: url.href, message };
-    }
+    const response = await requestHop(fetchImpl, url, cookie, remaining, timeoutMs, 'the library proxy');
+    if (!(response instanceof Response)) return response;
 
     for (const setCookie of setCookieHeaders(response.headers)) {
       jar = absorbSetCookie(jar, setCookie, url.hostname);
     }
 
     if (isRedirect(response.status)) {
-      const location = response.headers.get('location');
-      if (!location) {
-        return { kind: 'error', finalUrl: url.href, message: 'The proxy redirect was missing a Location header.' };
-      }
-      let next: URL;
-      try {
-        next = new URL(location, url);
-      } catch {
-        return { kind: 'error', finalUrl: url.href, message: 'The proxy redirect Location was not a valid URL.' };
-      }
-      if (next.protocol !== 'https:' || !isEzproxyHostname(next.hostname)) {
+      const next = redirectTarget(response, url);
+      if (!(next instanceof URL)) return next;
+      if (isSignInHostname(next.hostname) && !isEzproxyHostname(next.hostname)) {
         return {
           kind: 'login_required',
           finalUrl: url.href,
           message:
-            'EZproxy sent the browser to a host outside the library proxy (usually NU IT sign-in). The saved session is missing or no longer accepted. Re-run `node dist/login.js` and finish the EZproxy step. Session cookies were not sent to that host.',
+            'EZproxy sent the request to NU IT sign-in. The saved session is missing or no longer accepted. Re-run `neu-onesearch-login` and finish the EZproxy step. Session cookies were not sent to that host.',
+        };
+      }
+      if (!isEzproxyHostname(next.hostname)) {
+        return {
+          kind: 'off_proxy',
+          finalUrl: url.href,
+          offProxyUrl: next.href,
+          message: `EZproxy accepted the session but passed the request through to ${next.hostname}, which is not on NEU's library proxy. The publisher is likely open access. Session cookies were not sent to that host.`,
+        };
+      }
+      if (next.protocol !== 'https:') {
+        return {
+          kind: 'error',
+          finalUrl: url.href,
+          message: 'The proxy redirected to plain http. Refusing to send the session cookie without TLS.',
         };
       }
       url = next;
       continue;
     }
 
-    const contentType = response.headers.get('content-type') ?? '';
-    const body = await readLimitedBody(response, maxBytes);
-    if (body.tooLarge) {
-      return {
-        kind: 'too_large',
-        finalUrl: url.href,
-        message: `The response exceeded the ${maxBytes} byte download cap and was not parsed.`,
-      };
-    }
-
-    return {
-      kind: 'response',
-      finalUrl: url.href,
-      httpStatus: response.status,
-      contentType,
-      body: body.bytes,
-      cookies: jar,
-    };
+    return finalResponse(response, url, maxBytes, jar);
   }
 
   return {
@@ -453,4 +505,78 @@ export async function fetchEzproxyResource(
     finalUrl: url.href,
     message: `Stopped after ${maxRedirects} proxy redirects.`,
   };
+}
+
+async function defaultLookup(hostname: string): Promise<string[]> {
+  const addresses = await lookup(hostname, { all: true, verbatim: true });
+  return addresses.map((entry) => entry.address);
+}
+
+/** Why a URL may not be fetched directly, or null when it is a public http(s) URL. */
+async function publicUrlRefusal(url: URL, lookupImpl: LookupLike): Promise<string | null> {
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return 'only http and https URLs are fetched';
+  if (url.username || url.password) return 'URLs with embedded credentials are not fetched';
+  if (isBlockedHostname(url.hostname)) return 'the host is a local or private address';
+  let addresses: string[];
+  try {
+    addresses = await lookupImpl(url.hostname.replace(/^\[|\]$/g, ''));
+  } catch {
+    return `the host ${url.hostname} could not be resolved`;
+  }
+  if (addresses.length === 0) return `the host ${url.hostname} could not be resolved`;
+  if (addresses.some((address) => isBlockedHostname(address))) return 'the host resolves to a local or private address';
+  return null;
+}
+
+/**
+ * Fetch a public URL directly, without any session cookie. Used for publishers that
+ * EZproxy does not proxy (usually open access). Every hop must be http(s) and resolve
+ * only to public addresses, so a hostile redirect cannot probe the local network.
+ */
+export async function fetchPublicResource(startUrl: string, options: ProxyFetchOptions = {}): Promise<ProxyFetchResult> {
+  let url: URL;
+  try {
+    url = new URL(startUrl);
+  } catch {
+    return { kind: 'error', finalUrl: null, message: 'The publisher URL is not a valid URL.' };
+  }
+
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const lookupImpl = options.lookupImpl ?? defaultLookup;
+  const maxBytes = options.maxDownloadBytes ?? FULL_TEXT_LIMITS.maxDownloadBytes;
+  const maxRedirects = options.maxRedirects ?? FULL_TEXT_LIMITS.maxRedirects;
+  const timeoutMs = options.timeoutMs ?? FULL_TEXT_LIMITS.timeoutMs;
+  const deadline = Date.now() + timeoutMs;
+  const seen = new Set<string>();
+
+  for (let hop = 0; hop <= maxRedirects; hop++) {
+    if (seen.has(url.href)) {
+      return { kind: 'error', finalUrl: url.href, message: 'The publisher redirect chain looped.' };
+    }
+    seen.add(url.href);
+
+    const refusal = await publicUrlRefusal(url, lookupImpl);
+    if (refusal) {
+      return { kind: 'error', finalUrl: url.href, message: `Refusing to fetch ${url.href}: ${refusal}.` };
+    }
+
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      return { kind: 'error', finalUrl: url.href, message: `Timed out after ${timeoutMs}ms contacting the publisher.` };
+    }
+
+    const response = await requestHop(fetchImpl, url, null, remaining, timeoutMs, 'the publisher');
+    if (!(response instanceof Response)) return response;
+
+    if (isRedirect(response.status)) {
+      const next = redirectTarget(response, url);
+      if (!(next instanceof URL)) return next;
+      url = next;
+      continue;
+    }
+
+    return finalResponse(response, url, maxBytes, []);
+  }
+
+  return { kind: 'error', finalUrl: url.href, message: `Stopped after ${maxRedirects} publisher redirects.` };
 }

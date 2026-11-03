@@ -178,6 +178,104 @@ describe('getFullText', () => {
     expect(result.message).not.toMatch(/sign-in page/);
   });
 
+  describe('publishers EZproxy does not proxy', () => {
+    const PLOS_DOI = '10.1371/journal.pone.0212767';
+    const DX_URL = `https://dx.plos.org/${PLOS_DOI}`;
+    const ARTICLE_URL = `https://journals.plos.org/plosone/article?id=${PLOS_DOI}`;
+    const PDF_URL = `https://journals.plos.org/plosone/article/file?id=${PLOS_DOI}&type=printable`;
+    const publicLookup = async () => ['151.101.1.1'];
+
+    /** link -> doi-org (proxied) -> 302 dx.plos.org, then the publisher's own pages. */
+    function plosFetch(publisher: (url: string) => Response) {
+      return vi.fn(async (url: string, init?: RequestInit) => {
+        const cookie = (init?.headers as Record<string, string> | undefined)?.Cookie;
+        if (url.startsWith('https://link.ezproxy.neu.edu/')) {
+          return new Response(null, { status: 302, headers: { location: `https://doi-org.ezproxy.neu.edu/${PLOS_DOI}` } });
+        }
+        if (url.startsWith('https://doi-org.ezproxy.neu.edu/')) {
+          return new Response(null, { status: 302, headers: { location: DX_URL } });
+        }
+        if (cookie) throw new Error(`session cookie sent to ${url}`);
+        if (url === DX_URL) return new Response(null, { status: 302, headers: { location: ARTICLE_URL } });
+        return publisher(url);
+      });
+    }
+
+    it('fetches open-access text directly from the publisher without the session cookie', async () => {
+      const html = `<html><head>
+        <meta name="citation_title" content="Open Paper">
+        <meta name="citation_pdf_url" content="${PDF_URL.replace(/&/g, '&amp;')}">
+      </head><body><p>landing</p></body></html>`;
+      const fetchImpl = plosFetch((url) =>
+        url === PDF_URL ? pdfResponse() : new Response(html, { status: 200, headers: { 'content-type': 'text/html' } })
+      );
+      const result = await getFullText(
+        { doi: PLOS_DOI },
+        { fetchImpl, lookupImpl: publicLookup, sessionPath: ezproxySession() }
+      );
+      expect(result.status).toBe('ok');
+      expect(result.via).toBe('pdf');
+      expect(result.title).toBe('Open Paper');
+      expect(result.sourceUrl).toBe(PDF_URL);
+      expect(result.text).toContain('Hello from the proxy fixture.');
+      expect(result.message).toMatch(/not on NEU's EZproxy/);
+      expect(JSON.stringify(result)).not.toContain(COOKIE);
+    });
+
+    it('falls back to the HTML page when the direct PDF is not a PDF', async () => {
+      const html = `<html><head><meta name="citation_pdf_url" content="/plosone/article/file?id=x"></head>
+        <body><article><p>${'open access body '.repeat(300)}</p></article></body></html>`;
+      const fetchImpl = plosFetch((url) =>
+        url.includes('/file?')
+          ? new Response('<html>nope</html>', { status: 200, headers: { 'content-type': 'text/html' } })
+          : new Response(html, { status: 200, headers: { 'content-type': 'text/html' } })
+      );
+      const result = await getFullText({ doi: PLOS_DOI }, { fetchImpl, lookupImpl: publicLookup, sessionPath: ezproxySession() });
+      expect(result.status).toBe('ok');
+      expect(result.via).toBe('html');
+      expect(result.sourceUrl).toBe(ARTICLE_URL);
+      expect(result.text).toContain('open access body');
+      expect(result.message).toMatch(/not on NEU's EZproxy/);
+      expect(result.message).not.toMatch(/through EZproxy/);
+    });
+
+    it('returns not_proxied with the publisher URL when the direct fetch is refused', async () => {
+      const fetchImpl = plosFetch(() => new Response('denied', { status: 403, headers: { 'content-type': 'text/plain' } }));
+      const result = await getFullText({ doi: PLOS_DOI }, { fetchImpl, lookupImpl: publicLookup, sessionPath: ezproxySession() });
+      expect(result.status).toBe('not_proxied');
+      expect(result.text).toBeNull();
+      expect(result.sourceUrl).toBe(DX_URL);
+      expect(result.message).toContain(DX_URL);
+      expect(result.message).toMatch(/HTTP 403/);
+      expect(result.message).not.toMatch(/Re-run/);
+      expect(JSON.stringify(result)).not.toContain(COOKIE);
+    });
+
+    it('does not fetch a publisher host that resolves to a private address', async () => {
+      const fetchImpl = plosFetch(() => {
+        throw new Error('private publisher host was contacted');
+      });
+      const result = await getFullText(
+        { doi: PLOS_DOI },
+        { fetchImpl, lookupImpl: async () => ['192.168.0.10'], sessionPath: ezproxySession() }
+      );
+      expect(result.status).toBe('not_proxied');
+      expect(result.sourceUrl).toBe(DX_URL);
+      expect(result.message).toMatch(/private address/);
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it('still reports login_required when EZproxy redirects to the NEU IdP', async () => {
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url.includes('neuidmsso.neu.edu')) throw new Error('IdP was contacted');
+      return new Response(null, { status: 302, headers: { location: 'https://neuidmsso.neu.edu/idp/profile/SAML2/Redirect/SSO' } });
+    });
+    const result = await getFullText({ doi: '10.1000/xyz123' }, { fetchImpl, sessionPath: ezproxySession() });
+    expect(result.status).toBe('login_required');
+    expect(result.message).toMatch(/NU IT sign-in/);
+  });
+
   it('maps HTTP 403 to not entitled', async () => {
     const fetchImpl = vi.fn(async () => new Response('denied', { status: 403, headers: { 'content-type': 'text/plain' } }));
     const result = await getFullText({ doi: '10.1000/xyz123' }, { fetchImpl, sessionPath: ezproxySession() });

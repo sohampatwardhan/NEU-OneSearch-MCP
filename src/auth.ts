@@ -23,6 +23,12 @@ const SSO_HOST_PATTERNS = [
   /(^|\.)duosecurity\.com$/i,
 ];
 
+/** True when a host is an NEU sign-in or IdP host (Shibboleth, Duo, EZproxy login). */
+export function isSignInHostname(host: string): boolean {
+  const normalized = host.toLowerCase();
+  return SSO_HOST_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
 /**
  * A redirect back to OneSearch's own sign-in wall. Primo VE can answer a stale
  * session by bouncing to its discovery login page instead of to the IdP, so a
@@ -54,6 +60,5 @@ export function isLoginRedirect(response: Pick<Response, 'status' | 'url' | 'red
   if (!response.redirected) return false;
   const url = parseUrl(response.url ?? '');
   if (!url) return false;
-  const host = url.hostname.toLowerCase();
-  return SSO_HOST_PATTERNS.some((pattern) => pattern.test(host)) || isOneSearchLoginUrl(url);
+  return isSignInHostname(url.hostname) || isOneSearchLoginUrl(url);
 }

@@ -3,12 +3,14 @@ import { mapDoc } from './mapper.js';
 import {
   buildEzproxyDoiUrl,
   fetchEzproxyResource,
+  fetchPublicResource,
   FULL_TEXT_LIMITS,
   isEzproxyLoginPage,
   isEzproxyMenuPage,
   normalizeDoi,
   toEzproxyFetchUrl,
   type FetchLike,
+  type LookupLike,
   type ProxyFetchResult,
 } from './ezproxy.js';
 import {
@@ -30,6 +32,7 @@ export type FullTextStatus =
   | 'ok'
   | 'partial'
   | 'login_required'
+  | 'not_proxied'
   | 'not_entitled'
   | 'not_found'
   | 'too_large'
@@ -64,6 +67,7 @@ export interface GetFullTextInput {
 
 export interface GetFullTextOptions {
   fetchImpl?: FetchLike;
+  lookupImpl?: LookupLike;
   sessionPath?: string;
   nowMs?: number;
   maxDownloadBytes?: number;
@@ -79,6 +83,12 @@ interface ResolvedTarget {
   title: string | null;
   startUrl: string;
 }
+
+/** How the article bytes were reached: through EZproxy with the session, or directly without it. */
+type FetchRoute = 'proxy' | 'direct';
+
+const DIRECT_NOTE =
+  "This publisher is not on NEU's EZproxy (it is likely open access), so the article was fetched directly from the publisher without the library session.";
 
 const LIMITS_VIEW = {
   maxDownloadBytes: FULL_TEXT_LIMITS.maxDownloadBytes,
@@ -212,7 +222,8 @@ async function textFromPdf(
   contentType: string,
   sourceUrl: string,
   base: ResolvedTarget,
-  options: GetFullTextOptions
+  options: GetFullTextOptions,
+  route: FetchRoute = 'proxy'
 ): Promise<FullTextResult> {
   const maxPages = options.maxPdfPages ?? FULL_TEXT_LIMITS.maxPdfPages;
   const maxChars = options.maxTextChars ?? FULL_TEXT_LIMITS.maxTextChars;
@@ -252,9 +263,10 @@ async function textFromPdf(
     });
   }
 
-  const notes = [
-    'Extracted plain text from a PDF served through NEU EZproxy. This is text for synthesis, not the original file.',
-  ];
+  const notes =
+    route === 'proxy'
+      ? ['Extracted plain text from a PDF served through NEU EZproxy. This is text for synthesis, not the original file.']
+      : [DIRECT_NOTE, 'Extracted plain text from the PDF. This is text for synthesis, not the original file.'];
   if (clipped.text.length < 200) {
     notes.push('Very little text was extracted; the PDF may be scanned images or only a cover page.');
   }
@@ -287,10 +299,12 @@ function textFromHtml(
   contentType: string,
   sourceUrl: string,
   base: ResolvedTarget,
-  maxChars: number
+  maxChars: number,
+  route: FetchRoute = 'proxy'
 ): FullTextResult {
   const text = htmlToText(html);
   const title = findMetaContent(html, 'citation_title') ?? base.title;
+  const routed = (message: string) => (route === 'direct' ? `${DIRECT_NOTE} ${message}` : message);
   if (looksLikeBotWall(html, text)) {
     return emptyResult({
       status: 'unsupported',
@@ -300,8 +314,9 @@ function textFromHtml(
       sourceUrl,
       contentType,
       via: 'html',
-      message:
-        'The publisher or proxy returned a bot check or CAPTCHA instead of the article. Open the source URL in a browser while signed in. This server does not solve CAPTCHAs.',
+      message: routed(
+        'The publisher or proxy returned a bot check or CAPTCHA instead of the article. Open the source URL in a browser while signed in. This server does not solve CAPTCHAs.'
+      ),
     });
   }
 
@@ -320,7 +335,7 @@ function textFromHtml(
   } else if (text.length >= 2500) {
     status = 'ok';
     message =
-      'No PDF link was found. Text was extracted from the HTML page through EZproxy and may include site navigation along with the article.';
+      `No PDF link was found. Text was extracted from the HTML page${route === 'proxy' ? ' through EZproxy' : ''} and may include site navigation along with the article.`;
   } else if (text.length > 0) {
     status = 'partial';
     message =
@@ -346,8 +361,81 @@ function textFromHtml(
     truncated: clipped.truncated,
     charCount: clipped.text.length,
     text: clipped.text || null,
-    message,
+    message: routed(message),
   });
+}
+
+/** The publisher is off the proxy and its text could not be fetched directly: point at its URL. */
+function notProxied(base: ResolvedTarget, publisherUrl: string, reason: string): FullTextResult {
+  return emptyResult({
+    status: 'not_proxied',
+    doi: base.doi,
+    recordId: base.recordId,
+    title: base.title,
+    sourceUrl: publisherUrl,
+    message: `${reason} The article is at ${publisherUrl}. Open that URL directly; signing in again will not help.`,
+  });
+}
+
+/**
+ * EZproxy passed the target through unproxied, so fetch it straight from the publisher
+ * with no session cookie. Any failure falls back to `not_proxied` with the publisher URL.
+ */
+async function fullTextDirect(
+  offProxy: Extract<ProxyFetchResult, { kind: 'off_proxy' }>,
+  target: ResolvedTarget,
+  options: GetFullTextOptions
+): Promise<FullTextResult> {
+  const publisherUrl = offProxy.offProxyUrl;
+  const fetched = await fetchPublicResource(publisherUrl, options);
+  if (fetched.kind === 'too_large') return failureFromProxy(fetched, target);
+  if (fetched.kind !== 'response') {
+    return notProxied(target, publisherUrl, `${offProxy.message} A direct fetch failed: ${fetched.message}`);
+  }
+  if (fetched.httpStatus >= 400) {
+    return notProxied(
+      target,
+      publisherUrl,
+      `${offProxy.message} A direct fetch returned HTTP ${fetched.httpStatus}, so the article may not be open access.`
+    );
+  }
+
+  if (looksLikePdf(fetched.body, fetched.contentType)) {
+    return textFromPdf(fetched.body, fetched.contentType, fetched.finalUrl, target, options, 'direct');
+  }
+  if (!looksLikeHtml(fetched.body, fetched.contentType)) {
+    return notProxied(
+      target,
+      publisherUrl,
+      `${offProxy.message} The publisher returned ${fetched.contentType || 'an unknown content type'}, which is neither HTML nor PDF.`
+    );
+  }
+
+  const html = decodeBody(fetched.body, fetched.contentType);
+  const htmlTitle = findMetaContent(html, 'citation_title');
+  const titledTarget = htmlTitle ? { ...target, title: htmlTitle } : target;
+  const pdfHref = findPreferredPdfUrl(html);
+  const absolutePdf = pdfHref ? resolveHttpUrl(pdfHref, fetched.finalUrl) : null;
+  if (absolutePdf && absolutePdf !== fetched.finalUrl) {
+    const pdfResponse = await fetchPublicResource(absolutePdf, options);
+    if (
+      pdfResponse.kind === 'response' &&
+      pdfResponse.httpStatus < 400 &&
+      looksLikePdf(pdfResponse.body, pdfResponse.contentType)
+    ) {
+      return textFromPdf(pdfResponse.body, pdfResponse.contentType, pdfResponse.finalUrl, titledTarget, options, 'direct');
+    }
+    if (pdfResponse.kind === 'too_large') return failureFromProxy(pdfResponse, titledTarget);
+  }
+
+  return textFromHtml(
+    html,
+    fetched.contentType,
+    fetched.finalUrl,
+    titledTarget,
+    options.maxTextChars ?? FULL_TEXT_LIMITS.maxTextChars,
+    'direct'
+  );
 }
 
 function failureFromProxy(
@@ -363,6 +451,9 @@ function failureFromProxy(
       sourceUrl: base.startUrl,
       message: result.message,
     });
+  }
+  if (result.kind === 'off_proxy') {
+    return notProxied(base, result.offProxyUrl, result.message);
   }
   if (result.kind === 'too_large') {
     return emptyResult({
@@ -447,6 +538,7 @@ export async function getFullText(input: GetFullTextInput, options: GetFullTextO
   }
 
   const fetched = await fetchEzproxyResource(target.startUrl, cookies, options);
+  if (fetched.kind === 'off_proxy') return fullTextDirect(fetched, target, options);
   if (fetched.kind !== 'response') return failureFromProxy(fetched, target);
 
   const httpError = httpFailure(fetched, target);
