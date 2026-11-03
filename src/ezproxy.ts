@@ -105,9 +105,28 @@ export function isBlockedHostname(host: string): boolean {
   ) {
     return true;
   }
-  if (normalized === '::1' || normalized === '0.0.0.0') return true;
+  // IPv6 loopback, unspecified, link-local (fe80::/10), and unique-local
+  // (fc00::/7) literals. IPv4-mapped forms (::ffff:127.0.0.1) are handled by the
+  // IPv4 check below after the mapped suffix is isolated.
+  if (normalized === '::1' || normalized === '0.0.0.0' || normalized === '::') return true;
+  if (/^fe[89ab][0-9a-f]:/i.test(normalized)) return true;
+  if (/^f[cd][0-9a-f]{2}:/i.test(normalized)) return true;
 
-  const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(normalized);
+  // IPv4-mapped IPv6. The URL parser compresses ::ffff:127.0.0.1 to the hex form
+  // ::ffff:7f00:1, so fold the trailing two 16-bit groups back to dotted-quad
+  // and let the IPv4 rules decide (loopback/private mapped addresses are blocked).
+  let ipv4Candidate = normalized;
+  const mappedDotted = /^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i.exec(normalized);
+  const mappedHex = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i.exec(normalized);
+  if (mappedDotted) {
+    ipv4Candidate = mappedDotted[1];
+  } else if (mappedHex) {
+    const hi = parseInt(mappedHex[1], 16);
+    const lo = parseInt(mappedHex[2], 16);
+    ipv4Candidate = `${hi >> 8}.${hi & 0xff}.${lo >> 8}.${lo & 0xff}`;
+  }
+
+  const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(ipv4Candidate);
   if (!match) return false;
   const parts = match.slice(1).map(Number);
   if (parts.some((part) => part > 255)) return true;

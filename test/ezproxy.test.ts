@@ -75,9 +75,35 @@ describe('isBlockedHostname', () => {
       expect(isBlockedHostname(h)).toBe(true);
     }
   });
+  it('blocks IPv6 unspecified, link-local, unique-local, and IPv4-mapped loopback', () => {
+    for (const h of ['::', 'fe80::1', 'fc00::1', 'fd12:3456::1', '::ffff:127.0.0.1', '[fe80::1]', '[::1]']) {
+      expect(isBlockedHostname(h)).toBe(true);
+    }
+  });
+  it('does not block public IPv6 or an IPv4-mapped public address', () => {
+    expect(isBlockedHostname('2606:4700::1111')).toBe(false);
+    expect(isBlockedHostname('::ffff:8.8.8.8')).toBe(false);
+  });
   it('allows public hosts', () => {
     expect(isBlockedHostname('doi.org')).toBe(false);
     expect(isBlockedHostname('link.ezproxy.neu.edu')).toBe(false);
+  });
+});
+
+describe('toEzproxyFetchUrl SSRF normalization', () => {
+  // The WHATWG URL parser normalizes obfuscated IPv4 literals to dotted-quad,
+  // which isBlockedHostname then rejects. Pin that so a future refactor cannot
+  // regress the private-host guard silently.
+  it('rejects decimal, hex, and short-form IPv4 loopback', () => {
+    expect(toEzproxyFetchUrl('http://2130706433/secret')).toBeNull();
+    expect(toEzproxyFetchUrl('http://0x7f000001/secret')).toBeNull();
+    expect(toEzproxyFetchUrl('http://127.1/secret')).toBeNull();
+  });
+  it('rejects IPv6 loopback and private literals', () => {
+    expect(toEzproxyFetchUrl('http://[::1]/secret')).toBeNull();
+    expect(toEzproxyFetchUrl('http://[fe80::1]/secret')).toBeNull();
+    expect(toEzproxyFetchUrl('http://[fc00::1]/secret')).toBeNull();
+    expect(toEzproxyFetchUrl('http://[::ffff:127.0.0.1]/secret')).toBeNull();
   });
 });
 
