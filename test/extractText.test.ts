@@ -7,6 +7,7 @@ import {
   findMetaContent,
   findPreferredPdfUrl,
   htmlToText,
+  looksLikeBotWall,
   looksLikePaywall,
 } from '../src/extractText.js';
 
@@ -61,5 +62,43 @@ describe('PDF extraction', () => {
     expect(extracted.pagesExtracted).toBe(1);
     expect(extracted.text).toContain('Hello from the proxy fixture.');
     expect(extracted.text).not.toContain('Second page');
+  });
+});
+
+describe('looksLikeBotWall', () => {
+  const fixture = (name: string) =>
+    readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'fixtures', name), 'utf8');
+
+  it.each(['challenge-springer.html', 'challenge-ieee.html'])('%s is a bot wall', (f) => {
+    const html = fixture(f);
+    expect(looksLikeBotWall(html, htmlToText(html))).toBe(true);
+  });
+
+  it('a real article carrying the Cloudflare script is not a bot wall', () => {
+    const html = fixture('synthetic-cloudflare-article.html');
+    expect(htmlToText(html).length).toBeGreaterThan(1500);
+    expect(looksLikeBotWall(html, htmlToText(html))).toBe(false);
+  });
+
+  it('a curly apostrophe still matches', () => {
+    expect(
+      looksLikeBotWall(
+        '<title>x</title><p>We need to verify that you\u2019re not a robot.</p>',
+        'We need to verify that you\u2019re not a robot.'
+      )
+    ).toBe(true);
+  });
+
+  it('a strong phrase deep inside a long article does not match', () => {
+    const text = `${'Lorem ipsum dolor sit amet. '.repeat(250)}Just a moment...`;
+    expect(looksLikeBotWall(`<title>Paper</title><p>${text}</p>`, text)).toBe(false);
+  });
+
+  it('a strong phrase in the title matches', () => {
+    expect(looksLikeBotWall('<title>Just a moment...</title><p>hi</p>', 'hi')).toBe(true);
+  });
+
+  it('a weak marker on a nearly empty page matches', () => {
+    expect(looksLikeBotWall('<script src="/cdn-cgi/challenge-platform/h/b"></script>', 'tiny')).toBe(true);
   });
 });

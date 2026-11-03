@@ -134,11 +134,38 @@ export function looksLikePaywall(html: string): boolean {
   return PAYWALL_RE.test(html);
 }
 
+// Phrases that only appear on an interstitial. Checked in the title and the opening text so
+// an article that merely mentions one deep in its body is not misread.
+const STRONG_BOT_WALL_RE = new RegExp(
+  [
+    'Client Challenge',
+    "verify that you['\u2019]re not a robot",
+    'verify you are (a )?human',
+    'Just a moment\\.\\.\\.',
+    'Enable JavaScript and cookies to continue',
+    'Attention Required! \\| Cloudflare',
+    'please complete the captcha',
+  ].join('|'),
+  'i'
+);
+// Passive markers that real pages also carry (Cloudflare injects its challenge script into
+// ordinary articles). They only count when the page has almost no readable text.
+const WEAK_BOT_WALL_RE = /cdn-cgi\/challenge-platform|cf-turnstile|g-recaptcha/i;
+const BOT_WALL_OPENING_CHARS = 1000;
+const BOT_WALL_MAX_TEXT_CHARS = 1500;
+
 export function looksLikeBotWall(html: string, text: string): boolean {
-  if (/cdn-cgi\/challenge-platform|cf-turnstile|g-recaptcha|Attention Required! \| Cloudflare/i.test(html)) {
+  const title = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1] ?? '';
+  // htmlToText drops <noscript>, but challenge pages (IEEE's) put their message only there.
+  const noscript = (html.match(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi) ?? []).join(' ').replace(/<[^>]+>/g, ' ');
+  if (
+    STRONG_BOT_WALL_RE.test(title) ||
+    STRONG_BOT_WALL_RE.test(text.slice(0, BOT_WALL_OPENING_CHARS)) ||
+    (noscript.length < BOT_WALL_OPENING_CHARS && STRONG_BOT_WALL_RE.test(noscript))
+  ) {
     return true;
   }
-  return text.length < 1500 && /verify you are (a )?human|please complete the captcha/i.test(html);
+  return WEAK_BOT_WALL_RE.test(html) && text.length < BOT_WALL_MAX_TEXT_CHARS;
 }
 
 export function looksLikeHtml(bytes: Uint8Array, contentType: string): boolean {
