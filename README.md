@@ -326,57 +326,6 @@ with Google Chrome and NU IT credentials, verify the end-to-end flow by hand:
    "roughly one hour" estimate above), then confirm a tool returns `login_required`.
 4. `node dist/logout.js` — confirm `~/.cache/neu-onesearch-mcp/session.json` and `profile/` are gone.
 
-## Releasing
-
-Releases publish from `v*` tags through `.github/workflows/release.yml`, using npm trusted publishing (GitHub OIDC, no `NPM_TOKEN`) with provenance, and mirror the same version to GitHub Packages.
-
-### First publish (one time)
-
-npm can only attach a trusted publisher to a package that already exists on the registry, so the owner publishes the first version once from a maintainer machine:
-
-```sh
-npm login
-npm ci
-npm publish --access public
-```
-
-Leave `--provenance` off for that local publish.
-Provenance is added by the GitHub Actions workflow, which has the OIDC token.
-Don't push a tag for that version: the workflow would try to publish it again.
-
-Then, on npmjs.com, open `@sohampatwardhan/neu-onesearch-mcp` → Settings → Trusted publishing, choose GitHub Actions, and enter:
-
-| Field | Value |
-| --- | --- |
-| Organization or user | `sohampatwardhan` |
-| Repository | `NEU-OneSearch-MCP` |
-| Workflow filename | `release.yml` |
-| Environment name | empty |
-
-The filename is `release.yml` only, not `.github/workflows/release.yml`.
-Allow direct `npm publish`: a publisher created after 3 September 2026 starts with only `npm stage publish` allowed.
-Leave dist-tag management off.
-The same link can be created with npm CLI 11.15.0 or newer (2FA must be enabled on the account):
-
-```sh
-npm trust github @sohampatwardhan/neu-onesearch-mcp \
-  --repo sohampatwardhan/NEU-OneSearch-MCP \
-  --file release.yml \
-  --allow-publish
-```
-
-The first publish from the workflow has to succeed within two days of saving the publisher, or the configuration expires.
-
-### Later releases
-
-```sh
-npm version patch   # or minor, or major
-git push --follow-tags
-```
-
-`npm version` writes the version and a `vX.Y.Z` tag.
-The release workflow runs on that tag (or on a manual run that names the tag), refuses the job when the tag is not `v` plus the `package.json` version, runs `npm ci`, typecheck, build, and tests, publishes with `npm publish --provenance --access public`, opens a GitHub Release with generated notes, and then publishes the same version to GitHub Packages.
-
 ## Changelog
 
 See [CHANGELOG.md](CHANGELOG.md) for notable changes.
