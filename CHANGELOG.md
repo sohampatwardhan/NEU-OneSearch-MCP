@@ -22,6 +22,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `get_full_text` returned `login_required` for publishers NEU's EZproxy does
+  not proxy. EZproxy passes those through to the publisher (for example
+  `doi-org.ezproxy.neu.edu` -> `dx.plos.org` for PLOS), and any redirect off the
+  proxy was treated as a sign-in bounce. Now only a redirect to an NEU sign-in
+  host (`neuidmsso.neu.edu`, Shibboleth, Duo) means `login_required`. Session
+  cookies are still never sent off the proxy.
+
+## [0.2.1] - 2026-11-02
+
+### Fixed
+
 - `get_full_text` returned `login_required` even with a valid EZproxy session.
   Proxied links put a percent-encoded target in `login?url=`, which NEU's
   EZproxy does not honor, so it showed its database menu instead of the
@@ -31,12 +42,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - A landing on EZproxy's `/menu` page is reported as an `error` saying the
   proxy did not accept the target, instead of telling the user to sign in
   again.
-- `get_full_text` returned `login_required` for publishers NEU's EZproxy does
-  not proxy. EZproxy passes those through to the publisher (for example
-  `doi-org.ezproxy.neu.edu` -> `dx.plos.org` for PLOS), and any redirect off the
-  proxy was treated as a sign-in bounce. Now only a redirect to an NEU sign-in
-  host (`neuidmsso.neu.edu`, Shibboleth, Duo) means `login_required`. Session
-  cookies are still never sent off the proxy.
 
 ## [0.2.0] - 2026-11-02
 
