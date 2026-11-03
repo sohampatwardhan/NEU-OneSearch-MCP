@@ -84,7 +84,7 @@ flowchart TB
   - Add `test/fixtures/tiny.pdf` from PR #2
   - _Requirements: 3.1, 3.2, 3.5, 3.6_
 
-- [ ] 5. Add `src/fullText.ts` orchestration
+- [x] 5. Add `src/fullText.ts` orchestration
   - Implement `getFullText`: `resolveTarget` (DOI or `getRecord` + `mapDoc`),
     session gate via `classifyEzproxySession`, fetch via `fetchEzproxyResource`,
     PDF/HTML branch, `citation_pdf_url` re-routed through EZproxy, and the full
