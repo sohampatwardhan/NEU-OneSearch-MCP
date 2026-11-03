@@ -98,7 +98,7 @@ flowchart TB
     the metadata lookup path
   - _Requirements: 1.3, 3.7_
 
-- [ ] 7. Add the smoke script and README docs
+- [x] 7. Add the smoke script and README docs
   - Add `scripts/fulltext-smoke.mjs` targeting `dist/`, exiting non-zero on
     `login_required` or a non-text result
   - Document `get_full_text`, its inputs, statuses, and the smoke test in

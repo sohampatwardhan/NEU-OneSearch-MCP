@@ -252,6 +252,22 @@ implemented.
   `campus` restricts to one NEU campus/scope (`all` (default), `boston`, `oakland`, or `online`) — `all` is genuine all-campus results (`CDI_plus_all_local`), not just Boston + central index.
 - `get_record(recordId)` — fetch full detail (abstract, table of contents, availability, full-text link) for one result from a prior search.
   Only supports NEU catalog records (`recordId` starting with `alma`).
+- `get_full_text(doi?, recordId?)` — retrieve and extract the plain text of a subscribed article, fetched through NEU EZproxy using the cached sign-in session.
+  Pass a DOI (preferred, from a prior `search_onesearch` result) or an `alma` record id. The tool routes the link through EZproxy, downloads the PDF or HTML, and returns extracted text with caps (about 20 MiB download, 40 PDF pages, 100k characters).
+  The result is JSON with a `status` and never contains any cookie value:
+
+  | `status` | Meaning |
+  | --- | --- |
+  | `ok` | Full text extracted. `via` is `pdf` or `html`; `text` holds the extracted content. |
+  | `partial` | Some text, but likely an abstract/landing page or mixed with access-wall prompts. |
+  | `login_required` | No usable EZproxy session (missing, OneSearch-only, expired, or rejected). Run `neu-onesearch-login` and finish the EZproxy step. No network request is made when the session is absent. |
+  | `not_entitled` | A publisher access wall or HTTP 401/403 — NEU may not subscribe, or the publisher blocked the download. |
+  | `not_found` | The record or proxied URL returned nothing (404). |
+  | `too_large` | The download exceeded the size cap and was not parsed. |
+  | `unsupported` | No DOI/full-text link, a non-text or image-only response, or a bot/CAPTCHA wall. This server does not OCR or solve CAPTCHAs. |
+  | `error` | Bad input (no/invalid `doi` or non-`alma` `recordId`) or a transport failure. |
+
+  Every result also carries `via`, `sourceUrl`, `title`, `truncated`, and `charCount`. Unlike `search_onesearch` and `get_record`, `get_full_text` requires a live EZproxy session — a OneSearch-only login does not unlock article downloads.
 
 When a cached session has been attached and NEU bounces the request to sign in (or rejects the cookie with 401/403), a tool returns a JSON result with `"status": "login_required"` and a message telling you to run the login command again, instead of failing silently or returning an empty result. With no cached session, behavior is unchanged anonymous search.
 
@@ -278,6 +294,23 @@ Hits the real OneSearch endpoint — not part of `npm test`, run manually to con
 ```bash
 npm run build && node scripts/smoke-test.mjs
 ```
+
+### Full-text smoke test (human, needs a live EZproxy session)
+
+`get_full_text` is exercised against mocked EZproxy and publisher responses in `npm test`, so the
+automated suite never needs an NU account. To confirm a real retrieval end to end, sign in first,
+then run the script against a built `dist/`:
+
+```bash
+node dist/login.js                 # or: neu-onesearch-login — finish the EZproxy step
+npm run build && node scripts/fulltext-smoke.mjs
+# optionally pass your own DOI:
+node scripts/fulltext-smoke.mjs 10.1038/s41586-020-2649-2
+```
+
+It prints the status and a short text preview. With no DOI argument it uses the open-access probe
+article. The script exits non-zero on `login_required` (run the login command and retry) or any
+non-text result, and `0` when it extracts text.
 
 ### Manual sign-in smoke test (human, needs Chrome + an NU account)
 
