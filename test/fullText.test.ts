@@ -28,6 +28,12 @@ function pdfResponse(): Response {
   });
 }
 
+beforeEach(() => {
+  // The open-access fallback defaults to the global fetch for OpenAlex; a stub that
+  // returns undefined makes that lookup fail quietly, so no test reaches the network.
+  vi.stubGlobal('fetch', vi.fn());
+});
+
 afterEach(() => {
   if (tempDir) {
     rmSync(tempDir, { recursive: true, force: true });
@@ -37,10 +43,6 @@ afterEach(() => {
 });
 
 describe('getFullText', () => {
-  beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn());
-  });
-
   it('does not fetch when no session file exists', async () => {
     const fetchImpl = vi.fn();
     const result = await getFullText(
@@ -641,5 +643,222 @@ describe('overall deadline', () => {
     expect(result.status).toBe('error');
     expect(result.readUrl).not.toBeNull();
     expect(result.message).toMatch(/Timed out after 50ms/);
+  });
+});
+
+describe('open-access fallback through OpenAlex', () => {
+  const fixture = (name: string) => readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'fixtures', name), 'utf-8');
+  const htmlResponse = (body: string, status = 200) =>
+    new Response(body, { status, headers: { 'content-type': 'text/html; charset=utf-8' } });
+  const publicLookup = async () => ['151.101.1.1'];
+  const SPRINGER_DOI = '10.1007/s10462-024-10827-x';
+  const WHITE_ROSE = 'White Rose Research Online (University of Leeds, The University of Sheffield, University of York)';
+  const WHITE_ROSE_PDF = 'https://eprints.whiterose.ac.uk/id/eprint/222127/1/s10462-024-10827-x.pdf';
+  const SKIPPED = 'The open-access search was skipped.';
+
+  function openAlexFetchFor(locations: Array<{ pdf_url: string | null; version: string | null; source?: { display_name: string } }>) {
+    return vi.fn(async (_url: string, _init?: RequestInit) =>
+      new Response(JSON.stringify({ locations }), { status: 200, headers: { 'content-type': 'application/json' } })
+    );
+  }
+
+  const springerLocations = [
+    { pdf_url: null, version: 'publishedVersion', source: { display_name: 'Artificial Intelligence Review' } },
+    { pdf_url: WHITE_ROSE_PDF, version: 'submittedVersion', source: { display_name: WHITE_ROSE } },
+  ];
+
+  /** Proxied requests get the Springer challenge page; the repository copy is a PDF. */
+  function springerBlockedFetch(copy: () => Response = pdfResponse) {
+    return vi.fn(async (url: string, _init?: RequestInit) => {
+      if (url.includes('ezproxy.neu.edu')) return htmlResponse(fixture('challenge-springer.html'));
+      if (url === WHITE_ROSE_PDF) return copy();
+      throw new Error(`unexpected request ${url}`);
+    });
+  }
+
+  it('a blocked Springer article falls back to a repository copy with version submitted', async () => {
+    const fetchImpl = springerBlockedFetch();
+    const openAlexFetch = openAlexFetchFor(springerLocations);
+    const r = await getFullText(
+      { doi: SPRINGER_DOI },
+      { fetchImpl, openAlexFetch, lookupImpl: publicLookup, sessionPath: ezproxySession() }
+    );
+    expect(r.status).toBe('ok');
+    expect(r.fullText).toBe(true);
+    expect(r.version).toBe('submitted');
+    expect(r.textKind).toBe('article');
+    expect(r.readUrl).toBeNull();
+    expect(r.sourceUrl).toBe(WHITE_ROSE_PDF);
+    expect(r.doi).toBe(SPRINGER_DOI);
+    expect(r.text).toContain('Hello from the proxy fixture.');
+    expect(r.message).toContain('White Rose Research Online');
+    expect(r.message).toMatch(/submitted/);
+    expect(openAlexFetch.mock.calls[0][0]).toBe(`https://api.openalex.org/works/doi:${encodeURIComponent(SPRINGER_DOI)}`);
+    const copyCall = fetchImpl.mock.calls.find((call) => call[0] === WHITE_ROSE_PDF)!;
+    expect((copyCall[1]?.headers as Record<string, string>).Cookie).toBeUndefined();
+    expect(JSON.stringify(r)).not.toContain(COOKIE);
+  });
+
+  it('with no session, an open-access copy is still returned', async () => {
+    const PLOS_PDF = 'https://journals.plos.org/plosone/article/file?id=10.1371/journal.pone.0212767&type=printable';
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url === PLOS_PDF) return pdfResponse();
+      throw new Error(`unexpected request ${url}`);
+    });
+    const openAlexFetch = openAlexFetchFor([
+      { pdf_url: PLOS_PDF, version: 'publishedVersion', source: { display_name: 'PLoS ONE' } },
+    ]);
+    const r = await getFullText(
+      { doi: '10.1371/journal.pone.0212767' },
+      { fetchImpl, openAlexFetch, lookupImpl: publicLookup, sessionPath: '/nonexistent/neu-session.json' }
+    );
+    expect(r.status).toBe('ok');
+    expect(r.version).toBe('published');
+    expect(r.fullText).toBe(true);
+    expect(r.message).toContain('PLoS ONE');
+    expect(fetchImpl.mock.calls.map((call) => String(call[0])).some((url) => url.includes('ezproxy'))).toBe(false);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('when no copy works, the original blocked result stays, with readUrl and a note', async () => {
+    const fetchImpl = springerBlockedFetch(() => new Response('gone', { status: 404, headers: { 'content-type': 'text/plain' } }));
+    const r = await getFullText(
+      { doi: SPRINGER_DOI },
+      { fetchImpl, openAlexFetch: openAlexFetchFor(springerLocations), lookupImpl: publicLookup, sessionPath: ezproxySession() }
+    );
+    expect(r.status).toBe('blocked');
+    expect(r.fullText).toBe(false);
+    expect(r.version).toBeNull();
+    expect(r.text).toBeNull();
+    expect(r.readUrl).toMatch(/^https:\/\/link\.ezproxy\.neu\.edu\/login\?qurl=/);
+    expect(r.message).toMatch(/blocked automated access/);
+    expect(r.message).toContain('No open-access copy was found.');
+    expect(r.message.endsWith(` Open it in a browser: ${r.readUrl}`)).toBe(true);
+  });
+
+  it('a copy that answers but cannot be extracted is named, while readUrl stays the proxied link', async () => {
+    const fetchImpl = springerBlockedFetch(() => htmlResponse('<html><body><p>Repository landing page</p></body></html>'));
+    const r = await getFullText(
+      { doi: SPRINGER_DOI },
+      { fetchImpl, openAlexFetch: openAlexFetchFor(springerLocations), lookupImpl: publicLookup, sessionPath: ezproxySession() }
+    );
+    expect(r.status).toBe('blocked');
+    expect(r.readUrl).toMatch(/^https:\/\/link\.ezproxy\.neu\.edu\/login\?qurl=/);
+    expect(r.message).toContain(`An open-access copy exists at ${WHITE_ROSE_PDF} but its text could not be extracted.`);
+    expect(r.message.endsWith(` Open it in a browser: ${r.readUrl}`)).toBe(true);
+  });
+
+  it('OpenAlex failure never fails the call', async () => {
+    const failures = [
+      vi.fn(async () => new Response('oops', { status: 500 })),
+      vi.fn(async () => {
+        throw new Error('ECONNRESET');
+      }),
+      vi.fn(async () => new Response('not json', { status: 200, headers: { 'content-type': 'text/plain' } })),
+    ];
+    for (const openAlexFetch of failures) {
+      const r = await getFullText(
+        { doi: SPRINGER_DOI },
+        { fetchImpl: springerBlockedFetch(), openAlexFetch, lookupImpl: publicLookup, sessionPath: ezproxySession() }
+      );
+      expect(r.status).toBe('blocked');
+      expect(r.readUrl).toMatch(/^https:\/\/link\.ezproxy\.neu\.edu\/login\?qurl=/);
+      expect(r.message).toContain(SKIPPED);
+      expect(r.message).not.toContain('No open-access copy was found.');
+      expect(r.message.endsWith(` Open it in a browser: ${r.readUrl}`)).toBe(true);
+    }
+  });
+
+  it('an abstract-only result upgrades to ok when a copy exists', async () => {
+    const DOI = '10.1016/j.cose.2025.104509';
+    const COPY = 'https://repo.example/cose-accepted.pdf';
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url === COPY) return pdfResponse();
+      if (url.includes('ezproxy.neu.edu')) return htmlResponse(fixture('elsevier-abstract-only.html'));
+      throw new Error(`unexpected request ${url}`);
+    });
+    const r = await getFullText(
+      { doi: DOI },
+      {
+        fetchImpl,
+        openAlexFetch: openAlexFetchFor([{ pdf_url: COPY, version: 'acceptedVersion', source: { display_name: 'Example Repository' } }]),
+        lookupImpl: publicLookup,
+        sessionPath: ezproxySession(),
+      }
+    );
+    expect(r.status).toBe('ok');
+    expect(r.version).toBe('accepted');
+    expect(r.textKind).toBe('article');
+    expect(r.fullText).toBe(true);
+    expect(r.sourceUrl).toBe(COPY);
+    expect(r.message).toContain('Example Repository');
+    expect(r.message.startsWith('Abstract only')).toBe(false);
+  });
+
+  it('skips the open-access search, keeping the blocked result, when less than 10 s remain', async () => {
+    let now = 0;
+    const clock = () => now;
+    const fetchImpl = vi.fn(async (url: string) => {
+      now = 51_000; // the proxied fetch used up most of the 60 s budget
+      if (url.includes('ezproxy.neu.edu')) return htmlResponse(fixture('challenge-springer.html'));
+      throw new Error(`unexpected request ${url}`);
+    });
+    const openAlexFetch = openAlexFetchFor(springerLocations);
+    const r = await getFullText(
+      { doi: SPRINGER_DOI },
+      { fetchImpl, openAlexFetch, lookupImpl: publicLookup, sessionPath: ezproxySession(), clock }
+    );
+    expect(r.status).toBe('blocked');
+    expect(r.readUrl).toMatch(/^https:\/\/link\.ezproxy\.neu\.edu\/login\?qurl=/);
+    expect(r.message).toContain(SKIPPED);
+    expect(r.message.endsWith(` Open it in a browser: ${r.readUrl}`)).toBe(true);
+    expect(openAlexFetch).not.toHaveBeenCalled();
+  });
+
+  it('does not search for a copy when the target has no DOI', async () => {
+    const LINK = 'https://publisher.example/article/123';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({ pnx: { display: { title: ['No DOI Paper'] }, links: { linktopdf: [`$$U${LINK}`] } } }),
+      }))
+    );
+    const openAlexFetch = openAlexFetchFor(springerLocations);
+    const r = await getFullText(
+      { recordId: 'cdi_example_nodoi' },
+      { fetchImpl: vi.fn(async () => htmlResponse(fixture('challenge-springer.html'))), openAlexFetch, sessionPath: ezproxySession() }
+    );
+    expect(r.doi).toBeNull();
+    expect(r.status).toBe('blocked');
+    expect(openAlexFetch).not.toHaveBeenCalled();
+    expect(r.message).not.toMatch(/open-access/);
+  });
+
+  it('openAccess: false turns the fallback off', async () => {
+    const openAlexFetch = openAlexFetchFor(springerLocations);
+    const r = await getFullText(
+      { doi: SPRINGER_DOI },
+      { fetchImpl: springerBlockedFetch(), openAlexFetch, openAccess: false, lookupImpl: publicLookup, sessionPath: ezproxySession() }
+    );
+    expect(r.status).toBe('blocked');
+    expect(openAlexFetch).not.toHaveBeenCalled();
+    expect(r.message).not.toMatch(/open-access/);
+  });
+
+  it('does not search for a copy after a successful extraction or a non-fallback status', async () => {
+    const openAlexFetch = openAlexFetchFor(springerLocations);
+    const ok = await getFullText(
+      { doi: SPRINGER_DOI },
+      { fetchImpl: vi.fn(async () => pdfResponse()), openAlexFetch, sessionPath: ezproxySession() }
+    );
+    expect(ok.status).toBe('ok');
+    expect(ok.version).toBeNull();
+    const notFound = await getFullText(
+      { doi: SPRINGER_DOI },
+      { fetchImpl: vi.fn(async () => new Response('no', { status: 404 })), openAlexFetch, sessionPath: ezproxySession() }
+    );
+    expect(notFound.status).toBe('not_found');
+    expect(openAlexFetch).not.toHaveBeenCalled();
   });
 });

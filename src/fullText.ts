@@ -31,6 +31,7 @@ import { classifyEzproxySession, loadStoredCookies, type EzproxySessionState } f
 import { sessionCachePath } from './cache.js';
 import type { MappedResult } from './types.js';
 import { createDeadline, type Deadline } from './deadline.js';
+import { MIN_OPEN_ACCESS_MS, tryOpenAccess, type OpenAccessOutcome } from './openAccess.js';
 import { emptyResult, finalizeResult, type FullTextResult, type FullTextStatus, type TextKind } from './fullTextResult.js';
 
 export { emptyResult, finalizeResult, LIMITS_VIEW } from './fullTextResult.js';
@@ -55,6 +56,10 @@ export interface GetFullTextOptions {
   deadlineMs?: number;
   /** Clock for the overall deadline (separate from `nowMs`, which is for session expiry). */
   clock?: () => number;
+  /** Transport for the OpenAlex lookup in the open-access fallback. Default: global `fetch`. */
+  openAlexFetch?: FetchLike;
+  /** Try open-access copies when the library route returns no usable text. Default `true`. */
+  openAccess?: boolean;
 }
 
 const DEFAULT_DEADLINE_MS = 60_000;
@@ -574,19 +579,106 @@ export async function getFullText(input: GetFullTextInput, options: GetFullTextO
     );
   });
   try {
-    const result = await Promise.race([fetchFullText(target, capped, deadline), timedOut]);
+    const primary = await Promise.race([fetchFullText(target, capped), timedOut]);
+    const result = await withOpenAccess(primary, target, capped, deadline);
     return finalizeResult(result, target.readUrl);
   } finally {
     clearTimeout(timer);
   }
 }
 
-// `deadline` is the hook for the open-access fallback (skipped when little time remains).
-async function fetchFullText(
+/** Final statuses without usable text, after which an open-access copy is looked for. */
+const OPEN_ACCESS_STATUSES: ReadonlySet<FullTextStatus> = new Set([
+  'blocked',
+  'not_proxied',
+  'not_entitled',
+  'login_required',
+]);
+
+const OA_SKIPPED_NOTE = 'The open-access search was skipped.';
+const OA_NONE_NOTE = 'No open-access copy was found.';
+
+function wantsOpenAccess(result: FullTextResult): boolean {
+  return OPEN_ACCESS_STATUSES.has(result.status) || (result.status === 'partial' && result.textKind === 'abstract');
+}
+
+function withNote(result: FullTextResult, note: string): FullTextResult {
+  return { ...result, message: `${result.message} ${note}` };
+}
+
+function hostname(url: string | null): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Run the open-access fallback after a result without usable text, when the target has a
+ * DOI. It never makes the call fail: on any problem the primary result comes back with a
+ * note. With less than 10 s left (or if the deadline hits while it runs) the primary
+ * result is returned as the best result so far. Notes go on before `finalizeResult`, so
+ * the "Open it in a browser" suffix stays last.
+ */
+async function withOpenAccess(
+  primary: FullTextResult,
   target: ResolvedTarget,
   options: GetFullTextOptions,
-  _deadline: Deadline
+  deadline: Deadline
 ): Promise<FullTextResult> {
+  if (options.openAccess === false || !target.doi || !wantsOpenAccess(primary)) return primary;
+  if (deadline.remainingMs() < MIN_OPEN_ACCESS_MS) return withNote(primary, OA_SKIPPED_NOTE);
+
+  // Off the proxy (readUrl set by the direct route), skip the publisher host that refused us.
+  // Proxied results have no such host: EZproxy's own hosts never appear in OpenAlex.
+  const skipHost = primary.readUrl ? hostname(primary.sourceUrl ?? primary.readUrl) : null;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const outOfTime = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), deadline.remainingMs());
+  });
+  let outcome: OpenAccessOutcome | null;
+  try {
+    outcome = await Promise.race([
+      tryOpenAccess(target.doi, {
+        skipHost,
+        deadline,
+        fetchImpl: options.fetchImpl,
+        openAlexFetch: options.openAlexFetch,
+        lookupImpl: options.lookupImpl,
+        maxPdfPages: options.maxPdfPages ?? FULL_TEXT_LIMITS.maxPdfPages,
+        maxTextChars: options.maxTextChars ?? FULL_TEXT_LIMITS.maxTextChars,
+        maxDownloadBytes: options.maxDownloadBytes,
+        maxRedirects: options.maxRedirects,
+        timeoutMs: options.timeoutMs,
+      }).catch(() => null),
+      outOfTime,
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (outcome === null || (outcome.copy === null && outcome.skipped)) return withNote(primary, OA_SKIPPED_NOTE);
+  if (outcome.copy === null) {
+    const unextractable = outcome.firstUnextractable;
+    return withNote(
+      primary,
+      unextractable
+        ? `An open-access copy exists at ${unextractable.pdfUrl} but its text could not be extracted.`
+        : OA_NONE_NOTE
+    );
+  }
+  return {
+    ...outcome.result,
+    doi: target.doi,
+    recordId: target.recordId,
+    title: primary.title ?? target.title ?? outcome.result.title,
+    message: `The library route returned no full text (${primary.status}). ${outcome.result.message}`,
+  };
+}
+
+async function fetchFullText(target: ResolvedTarget, options: GetFullTextOptions): Promise<FullTextResult> {
   const sessionPath = options.sessionPath ?? sessionCachePath();
   const cookies = loadStoredCookies(sessionPath);
   const sessionState = classifyEzproxySession(cookies, options.nowMs);
