@@ -84,7 +84,7 @@ flowchart TB
   - Add `src/logout.ts` bin calling `removeSession`, printing what was removed, idempotent; register `neu-onesearch-logout` in `package.json` bin and build chmod
   - _Requirements: 4.1, 4.2, 4.3_
 
-- [ ] 8. Document sign-in, session lifetime, and the remote path
+- [x] 8. Document sign-in, session lifetime, and the remote path
   - Update README: `login`/`logout` commands, dedicated profile, cache path and `0700`/`0600` permissions, session lifetime (about one hour, to verify) surfacing as `login_required`, and the remote/Tailscale guidance; note the live smoke test is a manual human step
   - _Requirements: 5.1, 5.2, 5.3_
 ```
