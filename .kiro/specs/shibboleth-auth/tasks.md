@@ -80,7 +80,7 @@ flowchart TB
   - Rewrite `src/login.ts` to use `launchPersistentContext(profileDir(), { headless: false, channel: 'chrome' })`, navigate OneSearch then the EZproxy probe, read `context.cookies()`, write the cache via `writeSessionCache`, report captured EZproxy cookie names only (never values), and fail with a Chrome-naming message if the channel is missing
   - _Requirements: 1.1, 1.2, 1.4, 1.5, 1.6, 3.1, 3.3_
 
-- [ ] 7. logout CLI
+- [x] 7. logout CLI
   - Add `src/logout.ts` bin calling `removeSession`, printing what was removed, idempotent; register `neu-onesearch-logout` in `package.json` bin and build chmod
   - _Requirements: 4.1, 4.2, 4.3_
 
