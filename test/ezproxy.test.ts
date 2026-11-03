@@ -8,6 +8,7 @@ import {
   toEzproxyFetchUrl,
   isBlockedHostname,
   isEzproxyLoginPage,
+  isEzproxyMenuPage,
   absorbSetCookie,
   fetchEzproxyResource,
 } from '../src/ezproxy.js';
@@ -42,7 +43,7 @@ describe('doiToHttpsUrl', () => {
 describe('buildEzproxyDoiUrl', () => {
   it('routes a valid DOI through the library login prefix', () => {
     const url = buildEzproxyDoiUrl('10.1000/xyz');
-    expect(url).toBe(`${EZPROXY_LOGIN_ORIGIN}/login?url=${encodeURIComponent('https://doi.org/10.1000/xyz')}`);
+    expect(url).toBe(`${EZPROXY_LOGIN_ORIGIN}/login?qurl=${encodeURIComponent('https://doi.org/10.1000/xyz')}`);
   });
   it('returns null for an invalid DOI', () => {
     expect(buildEzproxyDoiUrl('nope')).toBeNull();
@@ -55,8 +56,19 @@ describe('buildEzproxyDoiUrl', () => {
 describe('toEzproxyFetchUrl', () => {
   it('wraps a public URL in the login prefix', () => {
     expect(toEzproxyFetchUrl('https://doi.org/10.1000/xyz')).toBe(
-      `${EZPROXY_LOGIN_ORIGIN}/login?url=${encodeURIComponent('https://doi.org/10.1000/xyz')}`
+      `${EZPROXY_LOGIN_ORIGIN}/login?qurl=${encodeURIComponent('https://doi.org/10.1000/xyz')}`
     );
+  });
+  it('uses qurl= so the encoded target is honored, never an encoded url=', () => {
+    const url = toEzproxyFetchUrl('https://www.nature.com/articles/nature14539');
+    expect(url).toMatch(/\/login\?qurl=https%3A%2F%2F/);
+    expect(url).not.toMatch(/[?&]url=/);
+  });
+  it("keeps the target's own query string intact", () => {
+    const target = 'https://publisher.example/article?id=42&format=pdf';
+    const url = new URL(toEzproxyFetchUrl(target)!);
+    expect([...url.searchParams.keys()]).toEqual(['qurl']);
+    expect(url.searchParams.get('qurl')).toBe(target);
   });
   it('keeps an already-proxied host and forces https', () => {
     expect(toEzproxyFetchUrl('http://doi-org.ezproxy.neu.edu/10.1/x')).toBe('https://doi-org.ezproxy.neu.edu/10.1/x');
@@ -112,6 +124,19 @@ describe('isEzproxyLoginPage', () => {
     expect(isEzproxyLoginPage('https://login.ezproxy.neu.edu/login?url=x', '')).toBe(true);
     expect(isEzproxyLoginPage('https://doi-org.ezproxy.neu.edu/x', 'auth=shibbolethNU')).toBe(true);
     expect(isEzproxyLoginPage('https://doi-org.ezproxy.neu.edu/x', 'the article body')).toBe(false);
+  });
+  it('does not treat the database menu as the sign-in page', () => {
+    expect(isEzproxyLoginPage('https://login.ezproxy.neu.edu/menu', '<title>Database Menu</title>')).toBe(false);
+  });
+});
+
+describe('isEzproxyMenuPage', () => {
+  it('detects the menu on the login and link hosts only', () => {
+    expect(isEzproxyMenuPage('https://login.ezproxy.neu.edu/menu')).toBe(true);
+    expect(isEzproxyMenuPage('https://link.ezproxy.neu.edu/menu/')).toBe(true);
+    expect(isEzproxyMenuPage('https://www-nature-com.ezproxy.neu.edu/menu')).toBe(false);
+    expect(isEzproxyMenuPage('https://login.ezproxy.neu.edu/login?qurl=x')).toBe(false);
+    expect(isEzproxyMenuPage('not a url')).toBe(false);
   });
 });
 
