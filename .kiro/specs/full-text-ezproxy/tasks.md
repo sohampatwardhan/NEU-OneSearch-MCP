@@ -77,7 +77,7 @@ flowchart TB
     `EZPROXY_*` exports working
   - _Requirements: 1.1, 2.2, 2.3, 3.4_
 
-- [ ] 4. Add `src/extractText.ts`
+- [x] 4. Add `src/extractText.ts`
   - Port PDF text extraction via `pdfjs-dist` legacy build with the page cap,
     `htmlToText`, `findMetaContent`, `findPreferredPdfUrl`, `looksLikePdf`,
     `looksLikeHtml`, `looksLikePaywall`, `looksLikeBotWall`, `decodeBody`
