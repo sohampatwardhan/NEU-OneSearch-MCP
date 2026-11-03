@@ -58,6 +58,8 @@ export type ProxyFetchResult =
       body: Uint8Array;
       /** Cookie jar after this chain, including Set-Cookie values from EZproxy hops. */
       cookies: StoredCookie[];
+      /** Redirects followed to reach `finalUrl`, so a caller can keep a later hop inside `maxRedirects`. */
+      redirects: number;
     }
   | { kind: 'login_required'; finalUrl: string; message: string }
   /** EZproxy handed the target back unproxied: the publisher is not on NEU's proxy. */
@@ -179,6 +181,22 @@ export function toEzproxyFetchUrl(target: string): string | null {
   return `${EZPROXY_LOGIN_ORIGIN}/login?qurl=${encodeURIComponent(url.href)}`;
 }
 
+const EZPROXY_HOST_SUFFIX = '.ezproxy.neu.edu';
+
+/**
+ * The publisher host behind an EZproxy-rewritten host, or null for EZproxy's own hosts
+ * and anything off the proxy. EZproxy writes the publisher's dots as hyphens and its
+ * hyphens as doubled hyphens: `link-springer-com.ezproxy.neu.edu` is `link.springer.com`.
+ */
+export function publisherHostFromEzproxy(host: string): string | null {
+  const normalized = host.trim().toLowerCase().replace(/\.$/, '');
+  if (!normalized.endsWith(EZPROXY_HOST_SUFFIX)) return null;
+  const label = normalized.slice(0, -EZPROXY_HOST_SUFFIX.length);
+  if (!label || label.includes('.') || label === 'link' || label === 'login') return null;
+  const publisher = label.split('--').map((part) => part.replace(/-/g, '.')).join('-');
+  return publisher.includes('.') ? publisher : null;
+}
+
 /** Route a DOI through NEU's EZproxy login prefix. */
 export function buildEzproxyDoiUrl(doi: string): string | null {
   const doiUrl = doiToHttpsUrl(doi);
@@ -201,6 +219,21 @@ export function isEzproxyMenuPage(url: string): boolean {
   const host = parsed.hostname.toLowerCase();
   if (host !== 'login.ezproxy.neu.edu' && host !== 'link.ezproxy.neu.edu') return false;
   return parsed.pathname.replace(/\/+$/, '') === '/menu';
+}
+
+/**
+ * True when EZproxy answered with its "wait a moment or click here" hand-off page. It is a
+ * bot-check style stop, never a sign-in problem, and its link must not be followed.
+ */
+export function isEzproxyInterstitial(url: string, html: string): boolean {
+  let host = '';
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  if (host !== 'link.ezproxy.neu.edu' && host !== 'login.ezproxy.neu.edu') return false;
+  return /wait a moment or click\s+(?:<[^>]*>\s*)*here(?:\s*<[^>]*>)*\s+to continue/i.test(html);
 }
 
 /** True when a proxied response is EZproxy's own NU IT sign-in page. */
@@ -391,10 +424,22 @@ async function finalResponse(
   response: Response,
   url: URL,
   maxBytes: number,
-  jar: StoredCookie[]
+  jar: StoredCookie[],
+  redirects: number
 ): Promise<ProxyFetchResult> {
   const contentType = response.headers.get('content-type') ?? '';
-  const body = await readLimitedBody(response, maxBytes);
+  let body: { bytes: Uint8Array; tooLarge: boolean };
+  try {
+    body = await readLimitedBody(response, maxBytes);
+  } catch (err) {
+    // fetch() resolves once headers arrive; the timeout signal or a reset can still end the body.
+    const name = err instanceof Error ? err.name : '';
+    const message =
+      name === 'AbortError' || name === 'TimeoutError'
+        ? 'Timed out while downloading the response body.'
+        : `The connection failed while downloading the response body (${err instanceof Error ? err.message : 'unknown error'}).`;
+    return { kind: 'error', finalUrl: url.href, message };
+  }
   if (body.tooLarge) {
     return {
       kind: 'too_large',
@@ -409,6 +454,7 @@ async function finalResponse(
     contentType,
     body: body.bytes,
     cookies: jar,
+    redirects,
   };
 }
 
@@ -502,7 +548,7 @@ export async function fetchEzproxyResource(
       continue;
     }
 
-    return finalResponse(response, url, maxBytes, jar);
+    return finalResponse(response, url, maxBytes, jar, hop);
   }
 
   return {
@@ -706,7 +752,7 @@ export async function fetchPublicResource(startUrl: string, options: ProxyFetchO
       continue;
     }
 
-    return finalResponse(response, url, maxBytes, []);
+    return finalResponse(response, url, maxBytes, [], hop);
   }
 
   return { kind: 'error', finalUrl: url.href, message: `Stopped after ${maxRedirects} publisher redirects.` };

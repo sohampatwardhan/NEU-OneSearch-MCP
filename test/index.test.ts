@@ -21,6 +21,21 @@ describe('MCP server tools', () => {
     vi.restoreAllMocks();
   });
 
+  it('get_full_text description tells agents about fullText, readUrl, textKind and blocked', async () => {
+    const client = await connectedClient(createServer());
+    const { tools } = await client.listTools();
+    const description = tools.find((t) => t.name === 'get_full_text')?.description ?? '';
+    for (const word of ['fullText', 'readUrl', 'clickable', 'textKind', 'abstract', 'blocked', 'cdi_', 'OpenAlex', 'version']) {
+      expect(description).toContain(word);
+    }
+    expect(description).toContain(
+      'If `fullText` is false, tell the user plainly that the full text was not retrieved and why, and show `readUrl` as a clickable link so they can open it in their browser.'
+    );
+    expect(description).toContain(
+      'If `textKind` is `abstract`, use the abstract to judge whether the paper is worth opening via `readUrl`.'
+    );
+  });
+
   it('search_onesearch returns mapped results as JSON text', async () => {
     (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
       ok: true,
@@ -68,7 +83,12 @@ describe('MCP server tools', () => {
     expect(calledUrl).toContain('scope=Mills_and_CI');
   });
 
-  it('search_onesearch surfaces a facet-conflict error as a tool error', async () => {
+  it('search_onesearch combines filters into one qInclude clause', async () => {
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: async () => ({ info: { total: 0 }, docs: [] }),
+    });
+
     const client = await connectedClient(createServer());
     const result = await client.request(
       {
@@ -81,19 +101,21 @@ describe('MCP server tools', () => {
       CallToolResultSchema
     );
 
-    expect(result.isError).toBe(true);
-    expect((result.content[0] as { text: string }).text).toContain('only supports one filter');
+    expect(result.isError).toBeFalsy();
+    const calledUrl = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    const qInclude = new URL(calledUrl).searchParams.get('qInclude');
+    expect(qInclude).toBe('facet_rtype,include,books|,|facet_tlevel,include,peer_reviewed');
   });
 
   it('get_record returns an error message for unsupported record ids', async () => {
     const client = await connectedClient(createServer());
     const result = await client.request(
-      { method: 'tools/call', params: { name: 'get_record', arguments: { recordId: 'cdi_foo' } } },
+      { method: 'tools/call', params: { name: 'get_record', arguments: { recordId: 'pq_foo' } } },
       CallToolResultSchema
     );
 
     expect(result.isError).toBe(true);
-    expect((result.content[0] as { text: string }).text).toContain('only supports Northeastern catalog records');
+    expect((result.content[0] as { text: string }).text).toContain('Unsupported record id');
   });
 
   it('search_onesearch returns a login_required result when a stale session is rejected', async () => {

@@ -134,11 +134,128 @@ export function looksLikePaywall(html: string): boolean {
   return PAYWALL_RE.test(html);
 }
 
+// Phrases that only appear on an interstitial. Checked in the title and the opening text so
+// an article that merely mentions one deep in its body is not misread.
+const STRONG_BOT_WALL_PHRASES = [
+  'Client Challenge',
+  "verify that you['\u2019]re not a robot",
+  'verify you are (a )?human',
+  'Just a moment\\.\\.\\.',
+  'Enable JavaScript and cookies to continue',
+  'Attention Required! \\| Cloudflare',
+  'please complete the captcha',
+].join('|');
+// A phrase that runs on into a longer word ("client challenges", "client challenge-response",
+// with any hyphen or dash) is a real title in an h1, not an interstitial.
+const STRONG_BOT_WALL_RE = new RegExp(`(?:${STRONG_BOT_WALL_PHRASES})(?![\\w\\-\u2010-\u2015])`, 'i');
+// In the title the phrase must be the whole title, optionally followed by a spaced site
+// suffix ("Just a moment... | Site"), so "Client challenge-response authentication" is not misread.
+const STRONG_BOT_WALL_TITLE_RE = new RegExp(
+  `^\\s*(?:${STRONG_BOT_WALL_PHRASES})\\s*(?:\\s[|\\-\u2013\u2014]\\s[\\s\\S]*)?$`,
+  'i'
+);
+// Passive markers that real pages also carry (Cloudflare injects its challenge script into
+// ordinary articles). They only count when the page has almost no readable text.
+const WEAK_BOT_WALL_RE = /cdn-cgi\/challenge-platform|cf-turnstile|g-recaptcha/i;
+const BOT_WALL_OPENING_CHARS = 1000;
+const BOT_WALL_MAX_TEXT_CHARS = 1500;
+
 export function looksLikeBotWall(html: string, text: string): boolean {
-  if (/cdn-cgi\/challenge-platform|cf-turnstile|g-recaptcha|Attention Required! \| Cloudflare/i.test(html)) {
+  const title = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1] ?? '';
+  // htmlToText drops <noscript>, but challenge pages (IEEE's) put their message only there.
+  // A short noscript notice on a page with real text is an ordinary "enable JavaScript" hint.
+  const noscript = (html.match(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi) ?? []).join(' ').replace(/<[^>]+>/g, ' ');
+  // Interstitials carry almost no text, so the phrases only count in the body of a short page.
+  const shortPage = text.length < BOT_WALL_MAX_TEXT_CHARS;
+  if (
+    STRONG_BOT_WALL_TITLE_RE.test(title) ||
+    (shortPage && STRONG_BOT_WALL_RE.test(text.slice(0, BOT_WALL_OPENING_CHARS))) ||
+    (shortPage && noscript.length < BOT_WALL_OPENING_CHARS && STRONG_BOT_WALL_RE.test(noscript))
+  ) {
     return true;
   }
-  return text.length < 1500 && /verify you are (a )?human|please complete the captcha/i.test(html);
+  return shortPage && WEAK_BOT_WALL_RE.test(html);
+}
+
+const LINKING_HUB_HOSTS = new Set(['linkinghub.elsevier.com', 'linkinghub-elsevier-com.ezproxy.neu.edu']);
+
+/**
+ * Elsevier's linkinghub answers a DOI with a "Redirecting" page whose hidden `redirectURL`
+ * field holds the ScienceDirect URL, percent-encoded. Returns that URL (http or https only),
+ * resolved against ScienceDirect, or null when `pageUrl` is not on linkinghub.
+ */
+export function findLinkingHubRedirect(html: string, pageUrl: string): string | null {
+  let host: string;
+  try {
+    host = new URL(pageUrl).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+  if (!LINKING_HUB_HOSTS.has(host)) return null;
+
+  const inputs = html.match(/<input\b[^>]*>/gi) ?? [];
+  const field = inputs.find((tag) => attribute(tag, 'name') === 'redirectURL');
+  const raw = field ? attribute(field, 'value') : null;
+  if (!raw) return null;
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(raw);
+  } catch {
+    return null;
+  }
+  try {
+    const url = new URL(decoded, 'https://www.sciencedirect.com');
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
+// ScienceDirect (seen live 2026-11-03): an article page served through the proxy carries the
+// abstract in div#abstracts, and the article body, when the page has it, in div#body. Pages
+// without div#body hold only the abstract, highlights, keywords and author notes, even for
+// entitled open-access articles. Real articles run well past the cap; it guards against
+// ScienceDirect renaming its body container and every article reading as abstract-only.
+const SCIENCEDIRECT_ABSTRACT_RE = /<(?:div|section)\b[^>]*\bid\s*=\s*["']abstracts["']/i;
+const SCIENCEDIRECT_BODY_RE = /<(?:div|section)\b[^>]*\bid\s*=\s*["']body["']/i;
+const SCIENCEDIRECT_ABSTRACT_MAX_CHARS = 20_000;
+// Any other page: under this length and mostly a block labelled "Abstract".
+const GENERIC_ABSTRACT_MAX_CHARS = 4000;
+const GENERIC_ABSTRACT_MIN_SHARE = 0.5;
+const ABSTRACT_LABEL_RE = /^abstract\s*:?$/i;
+const HEADING_MAX_CHARS = 60;
+
+/** Characters in the text block that follows a line reading "Abstract", up to the next heading-like line. */
+function abstractBlockChars(text: string): number {
+  const lines = text.split('\n').map((line) => line.trim());
+  const start = lines.findIndex((line) => ABSTRACT_LABEL_RE.test(line));
+  if (start < 0) return 0;
+  let chars = 0;
+  for (const line of lines.slice(start + 1)) {
+    if (!line) continue;
+    const headingLike = line.length <= HEADING_MAX_CHARS && !/[.!?]$/.test(line);
+    if (headingLike && chars > 0) break;
+    chars += line.length;
+  }
+  return chars;
+}
+
+/**
+ * True when the page shows an abstract (and metadata) but not the article body.
+ * ScienceDirect: an abstract container with no body container. Elsewhere: text under
+ * 4,000 characters, at least half of it the block labelled "Abstract".
+ */
+export function looksLikeAbstractOnly(html: string, text: string): boolean {
+  if (
+    findMetaContent(html, 'citation_pii') &&
+    SCIENCEDIRECT_ABSTRACT_RE.test(html) &&
+    !SCIENCEDIRECT_BODY_RE.test(html) &&
+    text.length < SCIENCEDIRECT_ABSTRACT_MAX_CHARS
+  ) {
+    return true;
+  }
+  if (text.length === 0 || text.length >= GENERIC_ABSTRACT_MAX_CHARS) return false;
+  return abstractBlockChars(text) >= text.length * GENERIC_ABSTRACT_MIN_SHARE;
 }
 
 export function looksLikeHtml(bytes: Uint8Array, contentType: string): boolean {

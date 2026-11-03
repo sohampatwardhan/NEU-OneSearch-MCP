@@ -29,10 +29,24 @@ describe('buildFacetClause', () => {
     );
   });
 
-  it('throws when more than one filter is requested at once', () => {
-    expect(() =>
-      buildFacetClause({ query: 'test', resourceType: 'articles', peerReviewedOnly: true })
-    ).toThrow(/only supports one filter/);
+  it('joins all filters with |,| in a fixed order', () => {
+    expect(
+      buildFacetClause({ query: 'x', resourceType: 'articles', dateFrom: 2020, dateTo: 2026, peerReviewedOnly: true })
+    ).toBe(
+      'facet_rtype,include,articles|,|facet_searchcreationdate,include,[2020 TO 2026]|,|facet_tlevel,include,peer_reviewed'
+    );
+  });
+
+  it('joins peer-reviewed with an open-ended date range (the #11 query)', () => {
+    expect(buildFacetClause({ query: 'x', peerReviewedOnly: true, dateFrom: 2020 })).toBe(
+      `facet_searchcreationdate,include,[2020 TO ${new Date().getFullYear()}]|,|facet_tlevel,include,peer_reviewed`
+    );
+  });
+
+  it('passes the joined clause through buildSearchParams', () => {
+    expect(buildSearchParams({ query: 'x', resourceType: 'books', peerReviewedOnly: true }).get('qInclude')).toBe(
+      'facet_rtype,include,books|,|facet_tlevel,include,peer_reviewed'
+    );
   });
 });
 
@@ -141,8 +155,42 @@ describe('getRecord', () => {
     vi.unstubAllGlobals();
   });
 
-  it('rejects record ids that do not start with "alma"', async () => {
-    await expect(getRecord('cdi_something')).rejects.toThrow(/only supports Northeastern catalog records/);
+  it('fetches a cdi_ record from pnxs/CDI with the Primo Central adaptor', async () => {
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        pnx: {
+          control: { recordid: ['cdi_crossref_primary_10_34028_iajit_19_2_8'] },
+          addata: { doi: ['10.34028/iajit/19/2/8'] },
+        },
+      }),
+    });
+    const doc = await getRecord('cdi_crossref_primary_10_34028_iajit_19_2_8');
+    const url = new URL(fetchMock.mock.calls[0][0] as string);
+    expect(url.pathname).toBe('/primaws/rest/pub/pnxs/CDI/cdi_crossref_primary_10_34028_iajit_19_2_8');
+    expect(url.searchParams.get('adaptor')).toBe('Primo Central');
+    expect(url.searchParams.get('inst')).toBe('01NEU_INST');
+    expect(url.searchParams.get('vid')).toBe('01NEU_INST:NUL');
+    expect(url.searchParams.get('search_scope')).toBe('CDI_plus_all_local');
+    expect(url.searchParams.get('lang')).toBe('en');
+    expect(doc?.pnx.addata?.doi?.[0]).toBe('10.34028/iajit/19/2/8');
+  });
+
+  it('percent-encodes path-unsafe characters in a cdi_ id', async () => {
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ pnx: {} }) });
+    await getRecord('cdi_odd/id#1 ?x');
+    expect(fetchMock.mock.calls[0][0]).toContain('/CDI/cdi_odd%2Fid%231%20%3Fx?');
+  });
+
+  it('returns null when the cdi_ record is 404', async () => {
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: false, status: 404 });
+    expect(await getRecord('cdi_missing')).toBeNull();
+  });
+
+  it('rejects other prefixes and names both supported ones', async () => {
+    await expect(getRecord('pq_123')).rejects.toThrow(/"alma".*"cdi_"/);
   });
 
   it('builds an mms_id query and returns the first doc', async () => {
@@ -194,6 +242,31 @@ describe('fetchPrimo', () => {
     await expect(searchOneSearch({ query: 'test' })).rejects.toThrow(
       'OneSearch returned an unparseable response'
     );
+  });
+});
+
+describe('fetchPrimo timeout', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('caps each OneSearch request at 20 s and reports a hung request as a clear error', async () => {
+    const realTimeout = AbortSignal.timeout.bind(AbortSignal);
+    // Keep the 20 s value under test but let the abort fire right away.
+    const timeoutSpy = vi.spyOn(AbortSignal, 'timeout').mockImplementation(() => realTimeout(5));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        (_url: string, init?: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init?.signal?.addEventListener('abort', () => reject(init.signal!.reason));
+          })
+      )
+    );
+    await expect(getRecord('cdi_hung_record')).rejects.toThrow('OneSearch did not answer within 20 seconds.');
+    await expect(searchOneSearch({ query: 'hung' })).rejects.toThrow('OneSearch did not answer within 20 seconds.');
+    expect(timeoutSpy).toHaveBeenCalledWith(20_000);
   });
 });
 

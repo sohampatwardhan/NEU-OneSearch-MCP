@@ -28,10 +28,32 @@ function buildCatalogUrl(recordId: string, campus: NonNullable<SearchOneSearchPa
   return `${CATALOG_BASE_URL}?${params.toString()}`;
 }
 
+export function parsePrimoLink(raw: string): string | null {
+  const start = raw.indexOf('$$U');
+  if (start === -1) return null;
+  const rest = raw.slice(start + 3);
+  const end = rest.indexOf('$$');
+  const value = end === -1 ? rest : rest.slice(0, end);
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:' ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 function findFullTextUrl(doc: PrimoDoc): string | null {
   const links = doc.delivery?.link ?? [];
   const fullText = links.find((link) => link.linkType === 'linktorsrc');
-  return fullText ? fullText.linkURL : null;
+  if (fullText) return fullText.linkURL;
+  const pnxLinks = doc.pnx.links;
+  for (const key of ['linktopdf', 'linktohtml', 'linktorsrc'] as const) {
+    for (const raw of pnxLinks?.[key] ?? []) {
+      const parsed = parsePrimoLink(raw);
+      if (parsed) return parsed;
+    }
+  }
+  return null;
 }
 
 function buildDoiUrl(doi: string | null): string | null {

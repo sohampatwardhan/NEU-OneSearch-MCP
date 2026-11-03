@@ -248,29 +248,39 @@ implemented.
 ## Tools
 
 - `search_onesearch(query, limit?, resourceType?, dateFrom?, dateTo?, peerReviewedOnly?, sort?, campus?)` — free-text search.
-  Only one of `resourceType`, `dateFrom`/`dateTo`, or `peerReviewedOnly` may be set per call — NEU's search API only honors one filter at a time.
+  `resourceType`, `dateFrom`/`dateTo`, and `peerReviewedOnly` combine (AND) in a single call.
   `campus` restricts to one NEU campus/scope (`all` (default), `boston`, `oakland`, or `online`) — `all` is genuine all-campus results (`CDI_plus_all_local`), not just Boston + central index.
 - `get_record(recordId)` — fetch full detail (abstract, table of contents, availability, full-text link) for one result from a prior search.
-  Only supports NEU catalog records (`recordId` starting with `alma`).
-- `get_full_text(doi?, recordId?)` — retrieve and extract the plain text of a subscribed article, fetched through NEU EZproxy using the cached sign-in session.
-  Pass a DOI (preferred, from a prior `search_onesearch` result) or an `alma` record id. The tool routes the link through EZproxy, downloads the PDF or HTML, and returns extracted text with caps (about 20 MiB download, 40 PDF pages, 100k characters).
+  Accepts catalog records (`recordId` starting with `alma`) and Central Discovery Index articles (`recordId` starting with `cdi_`).
+- `get_full_text(doi?, recordId?)` — retrieve and extract the plain text of a subscribed article, fetched through NEU EZproxy (which needs the cached sign-in session), with direct and open-access fallbacks that do not.
+  Pass a DOI (preferred, from a prior `search_onesearch` result) or an `alma` or `cdi_` record id. The tool routes the link through EZproxy, downloads the PDF or HTML, and returns extracted text with caps (about 20 MiB download, 40 PDF pages, 100k characters).
   The result is JSON with a `status` and never contains any cookie value:
 
   | `status` | Meaning |
   | --- | --- |
   | `ok` | Full text extracted. `via` is `pdf` or `html`; `text` holds the extracted content. |
-  | `partial` | Some text, but likely an abstract/landing page or mixed with access-wall prompts. |
-  | `login_required` | No usable EZproxy session (missing, OneSearch-only, expired, or rejected). Run `neu-onesearch-login` and finish the EZproxy step. No network request is made when the session is absent. |
+  | `partial` | Some text, but likely an abstract/landing page or mixed with access-wall prompts. `textKind` says `abstract` for abstract-only text (for example ScienceDirect pages through the proxy) or `unknown`. |
+  | `login_required` | No usable EZproxy session (missing, OneSearch-only, expired, or rejected). Run `neu-onesearch-login` and finish the EZproxy step. Without a session no request goes to the library proxy, but the open-access fallback may still query OpenAlex and fetch open-access copies (never with cookies); if it finds one, the status is `ok` instead. |
   | `not_proxied` | EZproxy passed the request through to a publisher it does not proxy (usually open access, such as PLOS), and a direct fetch of that page did not yield text. `sourceUrl` is the publisher URL to open. Signing in again will not help. |
   | `not_entitled` | A publisher access wall or HTTP 401/403 — NEU may not subscribe, or the publisher blocked the download. |
   | `not_found` | The record or proxied URL returned nothing (404). |
   | `too_large` | The download exceeded the size cap and was not parsed. |
-  | `unsupported` | No DOI/full-text link, a non-text or image-only response, or a bot/CAPTCHA wall. This server does not OCR or solve CAPTCHAs. |
-  | `error` | Bad input (no/invalid `doi` or non-`alma` `recordId`) or a transport failure. |
+  | `blocked` | The publisher or the library proxy refused automated access: a bot check, challenge or CAPTCHA page, an EZproxy "wait a moment ... click here" interstitial, or a 403 from a direct cookie-less fetch. Open `readUrl` in a browser and handle any check there. This server never solves or bypasses checks. |
+  | `unsupported` | No DOI/full-text link, or a non-text or image-only response. This server does not OCR. Bot walls are reported as `blocked`, not `unsupported`. |
+  | `error` | Bad input (no/invalid `doi` or unsupported `recordId` prefix) or a transport failure. |
 
   When EZproxy hands back an unproxied publisher URL, the tool fetches that page (and its `citation_pdf_url`) directly, with no session cookie, and returns `ok`/`partial` with a message saying so. Direct fetches only go to public http(s) hosts: every hop's hostname must resolve to public addresses only.
 
-  Every result also carries `via`, `sourceUrl`, `title`, `truncated`, and `charCount`. Unlike `search_onesearch` and `get_record`, `get_full_text` requires a live EZproxy session — a OneSearch-only login does not unlock article downloads.
+  Result fields that tell you what you got:
+
+  - `fullText` is `true` only for `ok`. When it is `false`, tell the user the full text was not retrieved and why.
+  - `readUrl` is a link the user can open in their browser whenever `fullText` is `false`: the EZproxy `login?qurl=` link for proxied publishers, or the publisher URL for publishers not on the proxy. It is `null` when there was no usable target. Messages for `fullText: false` start with "Full text was not retrieved: " (or "Abstract only. Full text was not retrieved: ") and end with "Open it in a browser: <readUrl>".
+  - `textKind` is `article` for `ok`, `abstract` for an abstract-only `partial`, and `unknown` for any other `partial`.
+  - `version` is `null` for the publisher's version, or `published`, `accepted`, `submitted` or `unknown` for an open-access copy.
+
+  Open-access fallback: after `blocked`, `not_proxied`, `not_entitled`, `login_required` (this works with no session at all) or an abstract-only result, and when a DOI is known, the tool asks OpenAlex (no key needed) for open-access copies and tries up to 3 of them, never sending cookies. Success returns `ok` with `version` set. Elsevier `linkinghub` redirects are followed. Each call has an overall 60-second deadline; a timeout still returns a result with `readUrl`.
+
+  Every result also carries `via`, `sourceUrl`, `title`, `truncated`, and `charCount`. Unlike `search_onesearch` and `get_record`, the EZproxy path of `get_full_text` requires a live EZproxy session — a OneSearch-only login does not unlock it. Open-access copies (publishers not on the proxy, and OpenAlex copies) need no session.
 
 When a cached session has been attached and NEU bounces the request to sign in (or rejects the cookie with 401/403), a tool returns a JSON result with `"status": "login_required"` and a message telling you to run the login command again, instead of failing silently or returning an empty result. With no cached session, behavior is unchanged anonymous search.
 
@@ -278,6 +288,16 @@ Each mapped result includes `catalogUrl`, `doiUrl`, and `ezproxyDoiUrl` (the lat
 `catalogUrl` points at the OneSearch discovery record itself and can show a "sign in or access from campus network" wall for CDI-sourced (`cdi_*`) records if you aren't already signed into OneSearch in that browser — this is Primo VE's own frontend access control, unaffected by anything this server does.
 `doiUrl` (`https://doi.org/<doi>`) is a stable link that always resolves to the publisher's landing page and doesn't require an NEU session; prefer it when sharing links or opening them in a fresh browser.
 `ezproxyDoiUrl` (`https://doi-org.ezproxy.neu.edu/<doi>`) routes the same DOI through NEU's EZproxy — opening it prompts an NEU sign-in, then forwards through the library's subscriptions to the publisher, unlocking full text for anything NEU has access to. Use this one when you (as an NEU user) want authenticated full-text access rather than just the public landing page.
+
+## Agent skill
+
+A bundled skill, `neu-literature-review`, teaches an agent the whole literature-review workflow with these tools: searching with combined filters, triaging by abstract, fetching full text, and being honest when the full text is not retrieved. Install it with:
+
+```sh
+npx skills add sohampatwardhan/NEU-OneSearch-MCP --skill neu-literature-review
+```
+
+Add `-a <agent>` to target one agent or `-g` to install globally. The `skills` CLI needs Node 22.20 or later; that is a requirement of the CLI, not of this server.
 
 ## Development
 

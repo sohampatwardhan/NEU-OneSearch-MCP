@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `get_full_text` and `get_record` accept `cdi_` Central Discovery Index record ids as well as `alma` ids (#12). For `cdi_` records without a DOI, full-text links from `pnx.links` are used (#20).
+- `search_onesearch` filters (`resourceType`, date range, `peerReviewedOnly`) combine (AND) in one call (#13).
+- `get_full_text` results carry `fullText`, `readUrl`, `textKind` and `version`, so an agent can tell the user plainly when full text was not retrieved and link them to `readUrl` (#17).
+- New `blocked` status for bot checks, challenges, CAPTCHA pages, EZproxy interstitials and cookie-less 403s. The server never solves or bypasses checks (#16).
+- Open-access fallback via OpenAlex for blocked, not proxied, not entitled, login-required (no session needed) and abstract-only results, with `version` reporting which copy was used (#18).
+- Overall 60-second deadline per `get_full_text` call; a timeout or a failed download still returns a result with `readUrl`. The OneSearch record lookup is capped at 20 seconds.
+- Bundled agent skill `neu-literature-review` (`skills/neu-literature-review/SKILL.md`, also shipped in the npm package). Install with `npx skills add sohampatwardhan/NEU-OneSearch-MCP --skill neu-literature-review` (#21).
+
+### Fixed
+
+- Elsevier `linkinghub` redirects are followed, and abstract-only ScienceDirect pages are reported as `partial` with `textKind` `abstract` (#15).
+- Real Wiley article pages were misread as bot walls (false positive in `looksLikeBotWall`) (#14). Challenge phrases in a page's text now count only on short pages, and only as whole words, so an article opening with "Client challenges…" is not misread.
+- Bot walls are reported as `blocked` instead of `unsupported` (#16).
+
 ## [0.3.0] - 2026-11-03
 
 ### Added

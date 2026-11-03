@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { mapDoc, mapSearchResponse } from '../src/mapper.js';
+import { mapDoc, mapSearchResponse, parsePrimoLink } from '../src/mapper.js';
 import type { PrimoDoc, PrimoSearchResponse } from '../src/types.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -93,5 +93,25 @@ describe('mapSearchResponse', () => {
     expect(result.results[0].catalogUrl).toContain('tab=Boston');
     expect(result.results[1].catalogUrl).toContain('search_scope=MyInst_and_CI');
     expect(result.results[1].catalogUrl).toContain('tab=Boston');
+  });
+});
+
+describe('pnx.links full-text links', () => {
+  it('decodes a $$U link', () => {
+    expect(parsePrimoLink('$$Uhttps://www.proquest.com/docview/216114114/fulltextPDF?accountid=12826$$EPDF$$Gproquest'))
+      .toBe('https://www.proquest.com/docview/216114114/fulltextPDF?accountid=12826');
+  });
+  it.each(['$$U/relative/path$$EPDF', '$$Ujavascript:alert(1)$$E', '$$Topenurl_article', ''])('rejects %j', (raw) => {
+    expect(parsePrimoLink(raw)).toBeNull();
+  });
+  it('maps linktopdf from pnx.links when there is no delivery link', () => {
+    const doc = { pnx: { control: { recordid: ['cdi_proquest_journals_216114114'] },
+      links: { linktopdf: ['$$Uhttps://www.proquest.com/docview/216114114/fulltextPDF$$EPDF'] } } } as PrimoDoc;
+    expect(mapDoc(doc).fullTextUrl).toBe('https://www.proquest.com/docview/216114114/fulltextPDF');
+  });
+  it('skips an unusable linktopdf and falls through to linktorsrc', () => {
+    const doc = { pnx: { control: { recordid: ['cdi_gale_1'] },
+      links: { linktopdf: ['$$Ujavascript:x'], linktorsrc: ['$$Uhttps://link.gale.com/apps/doc/A1/GIC$$EHTML'] } } } as PrimoDoc;
+    expect(mapDoc(doc).fullTextUrl).toBe('https://link.gale.com/apps/doc/A1/GIC');
   });
 });

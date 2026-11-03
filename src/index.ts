@@ -38,10 +38,10 @@ export function createServer(): McpServer {
         resourceType: z
           .enum(['articles', 'journals', 'books', 'newspaper_articles', 'reviews', 'book_chapters', 'dissertations'])
           .optional()
-          .describe('Filter to one resource type'),
-        dateFrom: z.number().int().optional().describe('Earliest publication year'),
-        dateTo: z.number().int().optional().describe('Latest publication year'),
-        peerReviewedOnly: z.boolean().optional().describe('Only return peer-reviewed results'),
+          .describe('Filter to one resource type (combines with the other filters, AND)'),
+        dateFrom: z.number().int().optional().describe('Earliest publication year (combines with the other filters, AND)'),
+        dateTo: z.number().int().optional().describe('Latest publication year (combines with the other filters, AND)'),
+        peerReviewedOnly: z.boolean().optional().describe('Only return peer-reviewed results (combines with the other filters, AND)'),
         sort: z.enum(['rank', 'date', 'title', 'author']).optional().describe('Sort order (default rank)'),
         campus: z
           .enum(['all', 'boston', 'oakland', 'online'])
@@ -72,7 +72,7 @@ export function createServer(): McpServer {
       description:
         'Fetch full detail for a single OneSearch catalog record (abstract, table of contents, availability, full-text link).',
       inputSchema: {
-        recordId: z.string().describe('Record id from a prior search_onesearch result (must start with "alma")'),
+        recordId: z.string().describe('Record id from a prior search_onesearch result (starts with "alma" for catalog records or "cdi_" for Central Discovery Index articles)'),
       },
     },
     async ({ recordId }) => {
@@ -98,13 +98,17 @@ export function createServer(): McpServer {
     'get_full_text',
     {
       description:
-        'Retrieve and extract the plain text of an article Northeastern subscribes to, fetched through the library EZproxy using the cached sign-in session. Pass a DOI (preferred) or an alma OneSearch record id. Requires a valid EZproxy session from `neu-onesearch-login`; returns status `login_required` when the session is missing or expired. Publishers the NEU proxy does not cover (usually open access) are fetched directly without the session; if that fails the status is `not_proxied` and `sourceUrl` is the publisher URL to open. Result statuses: ok, partial, login_required, not_proxied, not_entitled, not_found, too_large, unsupported, error.',
+        'Retrieve and extract the plain text of an article. Pass a DOI (preferred) or an "alma" or "cdi_" OneSearch record id. Articles Northeastern subscribes to are fetched through the library EZproxy, which needs the sign-in session from `neu-onesearch-login`; publishers the proxy does not cover are fetched directly without the session; and when that does not work, open-access copies are tried via OpenAlex, which also works without any session. ' +
+        '**If `fullText` is false, tell the user plainly that the full text was not retrieved and why, and show `readUrl` as a clickable link so they can open it in their browser.** ' +
+        '**If `textKind` is `abstract`, use the abstract to judge whether the paper is worth opening via `readUrl`.** ' +
+        'Result fields: `status`; `fullText` (true only for `ok`); `readUrl` (a link the user can open in a browser, or null); `textKind` (`article`, `abstract` or `unknown`); `version`: `null` means the publisher\'s version, otherwise `published`, `accepted`, `submitted` or `unknown` for an open-access copy. ' +
+        'Result statuses: ok, partial, login_required, not_proxied, not_entitled, not_found, too_large, unsupported, blocked, error. `blocked` means the publisher or the library proxy refused automated access (a bot check, challenge or interstitial page, or a 403 to a script); an agent with a browser can open `readUrl`, and the user handles any check there. This server never solves or bypasses checks.',
       inputSchema: {
         doi: z.string().optional().describe('Article DOI, or a https://doi.org/ URL (preferred input)'),
         recordId: z
           .string()
           .optional()
-          .describe('alma OneSearch record id from a prior search_onesearch/get_record result'),
+          .describe('"alma" or "cdi_" OneSearch record id from a prior search_onesearch/get_record result'),
       },
     },
     async ({ doi, recordId }) => {

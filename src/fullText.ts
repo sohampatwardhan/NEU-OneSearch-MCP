@@ -5,9 +5,11 @@ import {
   fetchEzproxyResource,
   fetchPublicResource,
   FULL_TEXT_LIMITS,
+  isEzproxyInterstitial,
   isEzproxyLoginPage,
   isEzproxyMenuPage,
   normalizeDoi,
+  publisherHostFromEzproxy,
   toEzproxyFetchUrl,
   type FetchLike,
   type LookupLike,
@@ -16,9 +18,11 @@ import {
 import {
   decodeBody,
   extractPdfText,
+  findLinkingHubRedirect,
   findMetaContent,
   findPreferredPdfUrl,
   htmlToText,
+  looksLikeAbstractOnly,
   looksLikeBotWall,
   looksLikeHtml,
   looksLikePaywall,
@@ -27,38 +31,12 @@ import {
 import { classifyEzproxySession, loadStoredCookies, type EzproxySessionState } from './session.js';
 import { sessionCachePath } from './cache.js';
 import type { MappedResult } from './types.js';
+import { createDeadline, type Deadline } from './deadline.js';
+import { MIN_OPEN_ACCESS_MS, tryOpenAccess, type OpenAccessOutcome } from './openAccess.js';
+import { emptyResult, finalizeResult, type FullTextResult, type FullTextStatus, type TextKind } from './fullTextResult.js';
 
-export type FullTextStatus =
-  | 'ok'
-  | 'partial'
-  | 'login_required'
-  | 'not_proxied'
-  | 'not_entitled'
-  | 'not_found'
-  | 'too_large'
-  | 'unsupported'
-  | 'error';
-
-export interface FullTextResult {
-  status: FullTextStatus;
-  doi: string | null;
-  recordId: string | null;
-  title: string | null;
-  sourceUrl: string | null;
-  contentType: string | null;
-  via: 'pdf' | 'html' | null;
-  pageCount: number | null;
-  pagesExtracted: number | null;
-  truncated: boolean;
-  charCount: number;
-  text: string | null;
-  message: string;
-  limits: {
-    maxDownloadBytes: number;
-    maxTextChars: number;
-    maxPdfPages: number;
-  };
-}
+export { emptyResult, finalizeResult, LIMITS_VIEW } from './fullTextResult.js';
+export type { FullTextResult, FullTextStatus, TextKind, CopyVersion } from './fullTextResult.js';
 
 export interface GetFullTextInput {
   doi?: string;
@@ -75,13 +53,25 @@ export interface GetFullTextOptions {
   maxPdfPages?: number;
   maxRedirects?: number;
   timeoutMs?: number;
+  /** Overall cap for the whole call. Default 60_000. */
+  deadlineMs?: number;
+  /** Clock for the overall deadline (separate from `nowMs`, which is for session expiry). */
+  clock?: () => number;
+  /** Transport for the OpenAlex lookup in the open-access fallback. Default: global `fetch`. */
+  openAlexFetch?: FetchLike;
+  /** Try open-access copies when the library route returns no usable text. Default `true`. */
+  openAccess?: boolean;
 }
+
+const DEFAULT_DEADLINE_MS = 60_000;
 
 interface ResolvedTarget {
   doi: string | null;
   recordId: string | null;
   title: string | null;
   startUrl: string;
+  /** Where a person can open the article in a browser (the proxied start link). */
+  readUrl: string | null;
 }
 
 /** How the article bytes were reached: through EZproxy with the session, or directly without it. */
@@ -89,30 +79,6 @@ type FetchRoute = 'proxy' | 'direct';
 
 const DIRECT_NOTE =
   "This publisher is not on NEU's EZproxy (it is likely open access), so the article was fetched directly from the publisher without the library session.";
-
-const LIMITS_VIEW = {
-  maxDownloadBytes: FULL_TEXT_LIMITS.maxDownloadBytes,
-  maxTextChars: FULL_TEXT_LIMITS.maxTextChars,
-  maxPdfPages: FULL_TEXT_LIMITS.maxPdfPages,
-};
-
-function emptyResult(overrides: Partial<FullTextResult> & Pick<FullTextResult, 'status' | 'message'>): FullTextResult {
-  return {
-    doi: null,
-    recordId: null,
-    title: null,
-    sourceUrl: null,
-    contentType: null,
-    via: null,
-    pageCount: null,
-    pagesExtracted: null,
-    truncated: false,
-    charCount: 0,
-    text: null,
-    limits: LIMITS_VIEW,
-    ...overrides,
-  };
-}
 
 function sessionLocationPhrase(): string {
   return process.env.NEU_ONESEARCH_CACHE_DIR?.trim()
@@ -155,14 +121,14 @@ function targetFromMapped(mapped: MappedResult, recordId: string): ResolvedTarge
   if (mapped.doi) {
     const startUrl = buildEzproxyDoiUrl(mapped.doi);
     if (startUrl) {
-      return { doi: mapped.doi, recordId, title: mapped.title, startUrl };
+      return { doi: mapped.doi, recordId, title: mapped.title, startUrl, readUrl: startUrl };
     }
   }
   const candidate = mapped.fullTextUrl ?? mapped.ezproxyDoiUrl;
   if (candidate) {
     const startUrl = toEzproxyFetchUrl(candidate);
     if (startUrl) {
-      return { doi: mapped.doi, recordId, title: mapped.title, startUrl };
+      return { doi: mapped.doi, recordId, title: mapped.title, startUrl, readUrl: startUrl };
     }
   }
   return emptyResult({
@@ -170,7 +136,7 @@ function targetFromMapped(mapped: MappedResult, recordId: string): ResolvedTarge
     recordId,
     title: mapped.title,
     doi: mapped.doi,
-    message: 'This catalog record has no DOI or EZproxy full-text link to retrieve.',
+    message: 'This record has no DOI or full-text link to retrieve.',
   });
 }
 
@@ -180,7 +146,7 @@ async function resolveTarget(input: GetFullTextInput): Promise<ResolvedTarget | 
   if (!doi && !recordId) {
     return emptyResult({
       status: 'error',
-      message: 'Provide a doi from search_onesearch (preferred, including CDI articles) or an alma recordId.',
+      message: 'Provide a doi from search_onesearch (preferred, including CDI articles) or an "alma" or "cdi_" recordId.',
     });
   }
 
@@ -195,7 +161,7 @@ async function resolveTarget(input: GetFullTextInput): Promise<ResolvedTarget | 
         message: 'That doi is not a usable DOI. Pass the DOI itself or a https://doi.org/ URL.',
       });
     }
-    return { doi: normalized, recordId: recordId ?? null, title: null, startUrl };
+    return { doi: normalized, recordId: recordId ?? null, title: null, startUrl, readUrl: startUrl };
   }
 
   try {
@@ -294,6 +260,27 @@ async function textFromPdf(
   });
 }
 
+// Covers a challenge page, EZproxy's own interstitial and a bare 403 to a script, so it
+// names no single cause. On the direct-403 path it must not suggest a paywall.
+const BLOCKED_MESSAGE =
+  'The publisher or the library proxy blocked automated access to this page. That does not mean NEU lacks access to this article. An agent with a browser can open the link, and the user can finish any check or sign-in there. This server does not solve CAPTCHAs.';
+
+function blockedResult(
+  base: ResolvedTarget,
+  fields: Partial<FullTextResult>,
+  message: string = BLOCKED_MESSAGE
+): FullTextResult {
+  return emptyResult({
+    status: 'blocked',
+    doi: base.doi,
+    recordId: base.recordId,
+    title: base.title,
+    ...fields,
+    text: null,
+    message,
+  });
+}
+
 function textFromHtml(
   html: string,
   contentType: string,
@@ -306,24 +293,14 @@ function textFromHtml(
   const title = findMetaContent(html, 'citation_title') ?? base.title;
   const routed = (message: string) => (route === 'direct' ? `${DIRECT_NOTE} ${message}` : message);
   if (looksLikeBotWall(html, text)) {
-    return emptyResult({
-      status: 'unsupported',
-      doi: base.doi,
-      recordId: base.recordId,
-      title,
-      sourceUrl,
-      contentType,
-      via: 'html',
-      message: routed(
-        'The publisher or proxy returned a bot check or CAPTCHA instead of the article. Open the source URL in a browser while signed in. This server does not solve CAPTCHAs.'
-      ),
-    });
+    return blockedResult(base, { title, sourceUrl, contentType, via: 'html' }, BLOCKED_MESSAGE);
   }
 
   const clipped = clip(text, maxChars);
   const paywall = looksLikePaywall(html);
   let status: FullTextStatus;
   let message: string;
+  let textKind: TextKind | null = null;
   if (paywall && text.length < 8000) {
     status = 'not_entitled';
     message =
@@ -332,6 +309,11 @@ function textFromHtml(
     status = 'partial';
     message =
       'The HTML page contains access-wall language and no separate PDF was downloaded. The text may mix the article with subscription prompts. Treat it as incomplete.';
+  } else if (text.length > 0 && looksLikeAbstractOnly(html, text)) {
+    status = 'partial';
+    textKind = 'abstract';
+    message =
+      'The publisher page shows the abstract and article details but not the article body, and no PDF was retrieved. Use the abstract to judge whether the article is worth opening.';
   } else if (text.length >= 2500) {
     status = 'ok';
     message =
@@ -358,6 +340,7 @@ function textFromHtml(
     sourceUrl,
     contentType,
     via: 'html',
+    textKind,
     truncated: clipped.truncated,
     charCount: clipped.text.length,
     text: clipped.text || null,
@@ -373,7 +356,8 @@ function notProxied(base: ResolvedTarget, publisherUrl: string, reason: string):
     recordId: base.recordId,
     title: base.title,
     sourceUrl: publisherUrl,
-    message: `${reason} The article is at ${publisherUrl}. Open that URL directly; signing in again will not help.`,
+    readUrl: publisherUrl,
+    message: `${reason} This publisher is not on NEU's proxy, so signing in again will not help.`,
   });
 }
 
@@ -381,7 +365,7 @@ function notProxied(base: ResolvedTarget, publisherUrl: string, reason: string):
  * EZproxy passed the target through unproxied, so fetch it straight from the publisher
  * with no session cookie. Any failure falls back to `not_proxied` with the publisher URL.
  */
-async function fullTextDirect(
+async function fullTextDirectInner(
   offProxy: Extract<ProxyFetchResult, { kind: 'off_proxy' }>,
   target: ResolvedTarget,
   options: GetFullTextOptions
@@ -391,6 +375,14 @@ async function fullTextDirect(
   if (fetched.kind === 'too_large') return failureFromProxy(fetched, target);
   if (fetched.kind !== 'response') {
     return notProxied(target, publisherUrl, `${offProxy.message} A direct fetch failed: ${fetched.message}`);
+  }
+  if (fetched.httpStatus === 403) {
+    // Without a session cookie a 403 is the publisher refusing a script, not a statement about access.
+    return blockedResult(
+      target,
+      { sourceUrl: fetched.finalUrl, contentType: fetched.contentType || null, readUrl: publisherUrl },
+      BLOCKED_MESSAGE
+    );
   }
   if (fetched.httpStatus >= 400) {
     return notProxied(
@@ -438,6 +430,16 @@ async function fullTextDirect(
   );
 }
 
+async function fullTextDirect(
+  offProxy: Extract<ProxyFetchResult, { kind: 'off_proxy' }>,
+  target: ResolvedTarget,
+  options: GetFullTextOptions
+): Promise<FullTextResult> {
+  const result = await fullTextDirectInner(offProxy, target, options);
+  // Off the proxy, the publisher URL is the one a person should open.
+  return result.status === 'ok' || result.readUrl ? result : { ...result, readUrl: offProxy.offProxyUrl };
+}
+
 function failureFromProxy(
   result: Exclude<ProxyFetchResult, { kind: 'response' }>,
   base: ResolvedTarget
@@ -480,6 +482,13 @@ function httpFailure(response: Extract<ProxyFetchResult, { kind: 'response' }>, 
     const html = response.contentType.toLowerCase().includes('html')
       ? decodeBody(response.body, response.contentType)
       : '';
+    if (html && looksLikeBotWall(html, htmlToText(html))) {
+      return blockedResult(base, {
+        sourceUrl: response.finalUrl,
+        contentType: response.contentType || null,
+        via: 'html',
+      });
+    }
     const text = html ? clip(htmlToText(html), 2000).text : null;
     return emptyResult({
       status: 'not_entitled',
@@ -519,10 +528,182 @@ function httpFailure(response: Extract<ProxyFetchResult, { kind: 'response' }>, 
   return null;
 }
 
+/**
+ * Elsevier's linkinghub answers 200 with a "Redirecting" page instead of an HTTP redirect.
+ * Follow its target once through the proxy with the response's cookie jar. The hop and any
+ * redirects after it share the `maxRedirects` budget with the first chain.
+ */
+async function followLinkingHub(fetched: ProxyFetchResult, options: GetFullTextOptions): Promise<ProxyFetchResult> {
+  if (fetched.kind !== 'response' || fetched.httpStatus >= 400) return fetched;
+  if (!looksLikeHtml(fetched.body, fetched.contentType)) return fetched;
+  const target = findLinkingHubRedirect(decodeBody(fetched.body, fetched.contentType), fetched.finalUrl);
+  const next = target ? toEzproxyFetchUrl(target) : null;
+  if (!next) return fetched;
+
+  const maxRedirects = options.maxRedirects ?? FULL_TEXT_LIMITS.maxRedirects;
+  const remaining = maxRedirects - fetched.redirects - 1;
+  if (remaining < 0) {
+    return { kind: 'error', finalUrl: fetched.finalUrl, message: `Stopped after ${maxRedirects} proxy redirects.` };
+  }
+  return fetchEzproxyResource(next, fetched.cookies, { ...options, maxRedirects: remaining });
+}
+
 export async function getFullText(input: GetFullTextInput, options: GetFullTextOptions = {}): Promise<FullTextResult> {
   const target = await resolveTarget(input);
-  if ('status' in target) return target;
+  if ('status' in target) return finalizeResult(target, null);
 
+  const deadlineMs = options.deadlineMs ?? DEFAULT_DEADLINE_MS;
+  const deadline = createDeadline(deadlineMs, options.clock);
+  const perRequestMs = options.timeoutMs ?? FULL_TEXT_LIMITS.timeoutMs;
+  // Each fetch reads timeoutMs when it starts (directly or via a spread), so a getter
+  // keeps every request capped by whatever remains of the overall deadline.
+  const capped: GetFullTextOptions = {
+    ...options,
+    get timeoutMs() {
+      return Math.min(perRequestMs, deadline.remainingMs());
+    },
+  };
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<FullTextResult>((resolve) => {
+    timer = setTimeout(
+      () =>
+        resolve(
+          emptyResult({
+            status: 'error',
+            doi: target.doi,
+            recordId: target.recordId,
+            title: target.title,
+            sourceUrl: target.startUrl,
+            message: `Timed out after ${deadlineMs}ms.`,
+          })
+        ),
+      deadlineMs
+    );
+  });
+  // Any throw on the primary route still yields a result with readUrl (decision 8).
+  const primaryRoute = fetchFullText(target, capped).catch((err: unknown) =>
+    emptyResult({
+      status: 'error',
+      doi: target.doi,
+      recordId: target.recordId,
+      title: target.title,
+      sourceUrl: target.startUrl,
+      message: `The full-text request failed: ${err instanceof Error ? err.message : 'unknown error'}.`,
+    })
+  );
+  try {
+    const primary = await Promise.race([primaryRoute, timedOut]);
+    const result = await withOpenAccess(primary, target, capped, deadline);
+    return finalizeResult(result, target.readUrl);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Final statuses without usable text, after which an open-access copy is looked for. */
+const OPEN_ACCESS_STATUSES: ReadonlySet<FullTextStatus> = new Set([
+  'blocked',
+  'not_proxied',
+  'not_entitled',
+  'login_required',
+]);
+
+const OA_SKIPPED_NOTE = 'The open-access search was skipped.';
+const OA_NONE_NOTE = 'No open-access copy was found.';
+
+function wantsOpenAccess(result: FullTextResult): boolean {
+  return OPEN_ACCESS_STATUSES.has(result.status) || (result.status === 'partial' && result.textKind === 'abstract');
+}
+
+function withNote(result: FullTextResult, note: string): FullTextResult {
+  return { ...result, message: `${result.message} ${note}` };
+}
+
+function hostname(url: string | null): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The publisher host that just refused us, whose OpenAlex copies are not worth a try:
+ * fetching them directly would hit the same wall. Off the proxy (the direct route sets
+ * `readUrl`) it is the publisher URL's host; `sourceUrl` may be a CDN or challenge host
+ * after redirects. Through the proxy it is the publisher behind the rewritten EZproxy
+ * host of `sourceUrl` (null when the result never left `link.ezproxy.neu.edu`).
+ */
+function blockingHost(primary: FullTextResult): string | null {
+  if (primary.readUrl) return hostname(primary.readUrl);
+  const proxied = hostname(primary.sourceUrl);
+  return proxied ? publisherHostFromEzproxy(proxied) : null;
+}
+
+/**
+ * Run the open-access fallback after a result without usable text, when the target has a
+ * DOI. It never makes the call fail: on any problem the primary result comes back with a
+ * note. With less than 10 s left (or if the deadline hits while it runs) the primary
+ * result is returned as the best result so far. Notes go on before `finalizeResult`, so
+ * the "Open it in a browser" suffix stays last.
+ */
+async function withOpenAccess(
+  primary: FullTextResult,
+  target: ResolvedTarget,
+  options: GetFullTextOptions,
+  deadline: Deadline
+): Promise<FullTextResult> {
+  if (options.openAccess === false || !target.doi || !wantsOpenAccess(primary)) return primary;
+  if (deadline.remainingMs() < MIN_OPEN_ACCESS_MS) return withNote(primary, OA_SKIPPED_NOTE);
+
+  const skipHost = blockingHost(primary);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const outOfTime = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), deadline.remainingMs());
+  });
+  let outcome: OpenAccessOutcome | null;
+  try {
+    outcome = await Promise.race([
+      tryOpenAccess(target.doi, {
+        skipHost,
+        deadline,
+        fetchImpl: options.fetchImpl,
+        openAlexFetch: options.openAlexFetch,
+        lookupImpl: options.lookupImpl,
+        maxPdfPages: options.maxPdfPages ?? FULL_TEXT_LIMITS.maxPdfPages,
+        maxTextChars: options.maxTextChars ?? FULL_TEXT_LIMITS.maxTextChars,
+        maxDownloadBytes: options.maxDownloadBytes,
+        maxRedirects: options.maxRedirects,
+        timeoutMs: options.timeoutMs,
+      }).catch(() => null),
+      outOfTime,
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (outcome === null || (outcome.copy === null && outcome.skipped)) return withNote(primary, OA_SKIPPED_NOTE);
+  if (outcome.copy === null) {
+    const unextractable = outcome.firstUnextractable;
+    return withNote(
+      primary,
+      unextractable
+        ? `An open-access copy exists at ${unextractable.pdfUrl} but its text could not be extracted.`
+        : OA_NONE_NOTE
+    );
+  }
+  return {
+    ...outcome.result,
+    doi: target.doi,
+    recordId: target.recordId,
+    title: primary.title ?? target.title ?? outcome.result.title,
+    message: `The library route returned no full text (${primary.status}). ${outcome.result.message}`,
+  };
+}
+
+async function fetchFullText(target: ResolvedTarget, options: GetFullTextOptions): Promise<FullTextResult> {
   const sessionPath = options.sessionPath ?? sessionCachePath();
   const cookies = loadStoredCookies(sessionPath);
   const sessionState = classifyEzproxySession(cookies, options.nowMs);
@@ -537,7 +718,8 @@ export async function getFullText(input: GetFullTextInput, options: GetFullTextO
     });
   }
 
-  const fetched = await fetchEzproxyResource(target.startUrl, cookies, options);
+  const first = await fetchEzproxyResource(target.startUrl, cookies, options);
+  const fetched = await followLinkingHub(first, options);
   if (fetched.kind === 'off_proxy') return fullTextDirect(fetched, target, options);
   if (fetched.kind !== 'response') return failureFromProxy(fetched, target);
 
@@ -561,6 +743,10 @@ export async function getFullText(input: GetFullTextInput, options: GetFullTextO
   }
 
   const html = decodeBody(fetched.body, fetched.contentType);
+  if (isEzproxyInterstitial(fetched.finalUrl, html)) {
+    // Never follow the hand-off link: it is the bot check this server must not get around.
+    return blockedResult(target, { sourceUrl: fetched.finalUrl, contentType: fetched.contentType || null, via: 'html' });
+  }
   if (isEzproxyMenuPage(fetched.finalUrl)) {
     return emptyResult({
       status: 'error',
@@ -596,7 +782,7 @@ export async function getFullText(input: GetFullTextInput, options: GetFullTextO
       if (!pdfHttpError && looksLikePdf(pdfResponse.body, pdfResponse.contentType)) {
         return textFromPdf(pdfResponse.body, pdfResponse.contentType, pdfResponse.finalUrl, titledTarget, options);
       }
-      if (pdfHttpError?.status === 'not_entitled') return pdfHttpError;
+      if (pdfHttpError?.status === 'not_entitled' || pdfHttpError?.status === 'blocked') return pdfHttpError;
     } else if (pdfResponse.kind === 'too_large') {
       return failureFromProxy(pdfResponse, titledTarget);
     }
