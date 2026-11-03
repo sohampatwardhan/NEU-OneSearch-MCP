@@ -7,8 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-02
+
 ### Added
 
+- `get_full_text` tool: fetches full text for a OneSearch record through
+  Northeastern EZproxy using the cached session, extracting text from HTML and
+  PDF (`pdfjs-dist`, eval disabled) with size, page and character caps. Returns
+  a structured status (`ok`, `login_required`, `not_entitled`, `unsupported`,
+  `too_large`) and only fetches allow-listed hosts.
 - Browser SSO sign-in through a dedicated, persistent Playwright Chrome
   profile (`channel: chrome`), so the NEU IdP session and Duo "remember this
   device" survive between runs and re-login is usually one click. Captured
