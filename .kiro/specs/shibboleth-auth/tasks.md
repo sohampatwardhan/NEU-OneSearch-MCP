@@ -60,7 +60,7 @@ flowchart TB
   - The project has no linter, so no lint step is added (do not invent one)
   - Gates every later task: it must pass before task 2 starts
 
-- [ ] 2. Cache locations and removal
+- [x] 2. Cache locations and removal
   - Add `src/cache.ts`: `resolveCacheDir` (honor `NEU_ONESEARCH_CACHE_DIR`, else `~/.cache/neu-onesearch-mcp`), `profileDir`, `sessionCachePath`, `ensureCacheDir` (mkdir `0700`), `removeSession` (delete cache file and profile dir, idempotent)
   - _Requirements: 1.3, 4.1, 4.2_
 
