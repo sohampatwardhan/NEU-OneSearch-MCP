@@ -21,6 +21,21 @@ describe('MCP server tools', () => {
     vi.restoreAllMocks();
   });
 
+  it('get_full_text description tells agents about fullText, readUrl, textKind and blocked', async () => {
+    const client = await connectedClient(createServer());
+    const { tools } = await client.listTools();
+    const description = tools.find((t) => t.name === 'get_full_text')?.description ?? '';
+    for (const word of ['fullText', 'readUrl', 'clickable', 'textKind', 'abstract', 'blocked', 'cdi_', 'OpenAlex', 'version']) {
+      expect(description).toContain(word);
+    }
+    expect(description).toContain(
+      'If `fullText` is false, tell the user plainly that the full text was not retrieved and why, and show `readUrl` as a clickable link so they can open it in their browser.'
+    );
+    expect(description).toContain(
+      'If `textKind` is `abstract`, use the abstract to judge whether the paper is worth opening via `readUrl`.'
+    );
+  });
+
   it('search_onesearch returns mapped results as JSON text', async () => {
     (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
       ok: true,

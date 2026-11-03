@@ -259,16 +259,26 @@ implemented.
   | `status` | Meaning |
   | --- | --- |
   | `ok` | Full text extracted. `via` is `pdf` or `html`; `text` holds the extracted content. |
-  | `partial` | Some text, but likely an abstract/landing page or mixed with access-wall prompts. |
+  | `partial` | Some text, but likely an abstract/landing page or mixed with access-wall prompts. `textKind` says `abstract` for abstract-only text (for example ScienceDirect pages through the proxy) or `unknown`. |
   | `login_required` | No usable EZproxy session (missing, OneSearch-only, expired, or rejected). Run `neu-onesearch-login` and finish the EZproxy step. No network request is made when the session is absent. |
   | `not_proxied` | EZproxy passed the request through to a publisher it does not proxy (usually open access, such as PLOS), and a direct fetch of that page did not yield text. `sourceUrl` is the publisher URL to open. Signing in again will not help. |
   | `not_entitled` | A publisher access wall or HTTP 401/403 — NEU may not subscribe, or the publisher blocked the download. |
   | `not_found` | The record or proxied URL returned nothing (404). |
   | `too_large` | The download exceeded the size cap and was not parsed. |
-  | `unsupported` | No DOI/full-text link, a non-text or image-only response, or a bot/CAPTCHA wall. This server does not OCR or solve CAPTCHAs. |
+  | `blocked` | The publisher refused automated access: a bot check, challenge or CAPTCHA page, an EZproxy "wait a moment ... click here" interstitial, or a 403 from a direct cookie-less fetch. Open `readUrl` in a browser and handle any check there. This server never solves or bypasses checks. |
+  | `unsupported` | No DOI/full-text link, or a non-text or image-only response. This server does not OCR. Bot walls are reported as `blocked`, not `unsupported`. |
   | `error` | Bad input (no/invalid `doi` or unsupported `recordId` prefix) or a transport failure. |
 
   When EZproxy hands back an unproxied publisher URL, the tool fetches that page (and its `citation_pdf_url`) directly, with no session cookie, and returns `ok`/`partial` with a message saying so. Direct fetches only go to public http(s) hosts: every hop's hostname must resolve to public addresses only.
+
+  Result fields that tell you what you got:
+
+  - `fullText` is `true` only for `ok`. When it is `false`, tell the user the full text was not retrieved and why.
+  - `readUrl` is a link the user can open in their browser whenever `fullText` is `false`: the EZproxy `login?qurl=` link for proxied publishers, or the publisher URL for publishers not on the proxy. It is `null` when there was no usable target. Messages for `fullText: false` start with "Full text was not retrieved: " (or "Abstract only. Full text was not retrieved: ") and end with "Open it in a browser: <readUrl>".
+  - `textKind` is `article` for `ok`, `abstract` for an abstract-only `partial`, and `unknown` for any other `partial`.
+  - `version` is `null` for the publisher's version, or `published`, `accepted`, `submitted` or `unknown` for an open-access copy.
+
+  Open-access fallback: after `blocked`, `not_proxied`, `not_entitled`, `login_required` (this works with no session at all) or an abstract-only result, and when a DOI is known, the tool asks OpenAlex (no key needed) for open-access copies and tries up to 3 of them, never sending cookies. Success returns `ok` with `version` set. Elsevier `linkinghub` redirects are followed. Each call has an overall 60-second deadline; a timeout still returns a result with `readUrl`.
 
   Every result also carries `via`, `sourceUrl`, `title`, `truncated`, and `charCount`. Unlike `search_onesearch` and `get_record`, `get_full_text` requires a live EZproxy session — a OneSearch-only login does not unlock article downloads.
 
