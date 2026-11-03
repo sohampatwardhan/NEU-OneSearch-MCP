@@ -51,10 +51,10 @@ flowchart TB
 
 ## Tasks
 
-- [ ] 1. Update CI for the new dependency and tests
-  - Confirm `.github/workflows/ci.yml` runs `npm ci`, `npm run typecheck`,
-    `npm run build`, `npm test`, and `npm pack --dry-run`; it already does, so
-    extend only if a step is missing once `pdfjs-dist` is added
+- [x] 1. Update CI for the new dependency and tests
+  - `.github/workflows/ci.yml` already runs `npm ci`, `npm run typecheck`,
+    `npm run build`, `npm test`, and `npm pack --dry-run` on push and PR, which
+    covers the added dependency and the new test files; no change needed
   - Gates every later task: it must pass before task 2 starts
 
 - [ ] 2. Add the PDF dependency and the EZproxy session classifier
