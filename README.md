@@ -252,7 +252,7 @@ implemented.
   `campus` restricts to one NEU campus/scope (`all` (default), `boston`, `oakland`, or `online`) — `all` is genuine all-campus results (`CDI_plus_all_local`), not just Boston + central index.
 - `get_record(recordId)` — fetch full detail (abstract, table of contents, availability, full-text link) for one result from a prior search.
   Accepts catalog records (`recordId` starting with `alma`) and Central Discovery Index articles (`recordId` starting with `cdi_`).
-- `get_full_text(doi?, recordId?)` — retrieve and extract the plain text of a subscribed article, fetched through NEU EZproxy using the cached sign-in session.
+- `get_full_text(doi?, recordId?)` — retrieve and extract the plain text of a subscribed article, fetched through NEU EZproxy (which needs the cached sign-in session), with direct and open-access fallbacks that do not.
   Pass a DOI (preferred, from a prior `search_onesearch` result) or an `alma` or `cdi_` record id. The tool routes the link through EZproxy, downloads the PDF or HTML, and returns extracted text with caps (about 20 MiB download, 40 PDF pages, 100k characters).
   The result is JSON with a `status` and never contains any cookie value:
 
@@ -280,7 +280,7 @@ implemented.
 
   Open-access fallback: after `blocked`, `not_proxied`, `not_entitled`, `login_required` (this works with no session at all) or an abstract-only result, and when a DOI is known, the tool asks OpenAlex (no key needed) for open-access copies and tries up to 3 of them, never sending cookies. Success returns `ok` with `version` set. Elsevier `linkinghub` redirects are followed. Each call has an overall 60-second deadline; a timeout still returns a result with `readUrl`.
 
-  Every result also carries `via`, `sourceUrl`, `title`, `truncated`, and `charCount`. Unlike `search_onesearch` and `get_record`, `get_full_text` requires a live EZproxy session — a OneSearch-only login does not unlock article downloads.
+  Every result also carries `via`, `sourceUrl`, `title`, `truncated`, and `charCount`. Unlike `search_onesearch` and `get_record`, the EZproxy path of `get_full_text` requires a live EZproxy session — a OneSearch-only login does not unlock it. Open-access copies (publishers not on the proxy, and OpenAlex copies) need no session.
 
 When a cached session has been attached and NEU bounces the request to sign in (or rejects the cookie with 401/403), a tool returns a JSON result with `"status": "login_required"` and a message telling you to run the login command again, instead of failing silently or returning an empty result. With no cached session, behavior is unchanged anonymous search.
 

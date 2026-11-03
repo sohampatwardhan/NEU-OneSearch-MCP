@@ -9,16 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- `get_full_text` and `get_record` accept `cdi_` Central Discovery Index record ids as well as `alma` ids (#12, #13).
-- `search_onesearch` filters (`resourceType`, date range, `peerReviewedOnly`) combine (AND) in one call (#12).
-- `get_full_text` results carry `fullText`, `readUrl`, `textKind` and `version`, so an agent can tell the user plainly when full text was not retrieved and link them to `readUrl` (#14, #17).
+- `get_full_text` and `get_record` accept `cdi_` Central Discovery Index record ids as well as `alma` ids (#12). For `cdi_` records without a DOI, full-text links from `pnx.links` are used (#20).
+- `search_onesearch` filters (`resourceType`, date range, `peerReviewedOnly`) combine (AND) in one call (#13).
+- `get_full_text` results carry `fullText`, `readUrl`, `textKind` and `version`, so an agent can tell the user plainly when full text was not retrieved and link them to `readUrl` (#17).
 - New `blocked` status for bot checks, challenges, CAPTCHA pages, EZproxy interstitials and cookie-less 403s. The server never solves or bypasses checks (#16).
 - Open-access fallback via OpenAlex for blocked, not proxied, not entitled, login-required (no session needed) and abstract-only results, with `version` reporting which copy was used (#18).
-- Overall 60-second deadline per `get_full_text` call; a timeout still returns a result with `readUrl` (#20).
+- Overall 60-second deadline per `get_full_text` call; a timeout still returns a result with `readUrl`.
 
 ### Fixed
 
 - Elsevier `linkinghub` redirects are followed, and abstract-only ScienceDirect pages are reported as `partial` with `textKind` `abstract` (#15).
+- Real Wiley article pages were misread as bot walls (false positive in `looksLikeBotWall`) (#14).
 - Bot walls are reported as `blocked` instead of `unsupported` (#16).
 
 ## [0.3.0] - 2026-11-03

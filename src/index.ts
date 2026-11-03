@@ -98,12 +98,11 @@ export function createServer(): McpServer {
     'get_full_text',
     {
       description:
-        'Retrieve and extract the plain text of an article. Pass a DOI (preferred) or an "alma" or "cdi_" OneSearch record id. Articles Northeastern subscribes to are fetched through the library EZproxy using the cached sign-in session from `neu-onesearch-login`; publishers the proxy does not cover are fetched directly without the session; and when that does not work, open-access copies are tried via OpenAlex, which also works without any session. ' +
+        'Retrieve and extract the plain text of an article. Pass a DOI (preferred) or an "alma" or "cdi_" OneSearch record id. Articles Northeastern subscribes to are fetched through the library EZproxy, which needs the sign-in session from `neu-onesearch-login`; publishers the proxy does not cover are fetched directly without the session; and when that does not work, open-access copies are tried via OpenAlex, which also works without any session. ' +
         '**If `fullText` is false, tell the user plainly that the full text was not retrieved and why, and show `readUrl` as a clickable link so they can open it in their browser.** ' +
         '**If `textKind` is `abstract`, use the abstract to judge whether the paper is worth opening via `readUrl`.** ' +
         'Result fields: `status`; `fullText` (true only for `ok`); `readUrl` (a link the user can open in a browser, or null); `textKind` (`article`, `abstract` or `unknown`); `version`: `null` means the publisher\'s version, otherwise `published`, `accepted`, `submitted` or `unknown` for an open-access copy. ' +
         'Result statuses: ok, partial, login_required, not_proxied, not_entitled, not_found, too_large, unsupported, blocked, error. `blocked` means the publisher refused automated access (bot check or challenge); an agent with a browser can open `readUrl`, and the user handles any check there. This server never solves or bypasses checks.',
-
       inputSchema: {
         doi: z.string().optional().describe('Article DOI, or a https://doi.org/ URL (preferred input)'),
         recordId: z
