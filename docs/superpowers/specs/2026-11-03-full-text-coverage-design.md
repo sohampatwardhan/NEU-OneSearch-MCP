@@ -139,8 +139,8 @@ redirect and SSRF limits. Then:
   followed.
 - **What the result contains:**
   - `text: null`.
-  - `sourceUrl`: the best link for a person to open in a browser. Use the EZproxy link when
-    the publisher is proxied, otherwise the publisher URL.
+  - `readUrl` (see 3e): the link for a person to open in a browser. `sourceUrl` keeps its
+    meaning of where the server fetched from.
   - A message saying that the publisher blocked automated access, which isn't a sign of
     missing access; that an agent with a browser can open `sourceUrl` and let the person
     sign in or pass any check there; and that this server doesn't solve CAPTCHAs.
@@ -187,6 +187,49 @@ redirect and SSRF limits. Then:
   reverting to the Chrome string. That decision goes back to the owner.
 - **OpenAlex:** add `mailto=` only if the owner opts in. Don't add the owner's email
   automatically.
+
+## Decisions from the builder review
+
+A fresh reviewer read this design and the code and raised eight questions. These are the
+answers. Each is marked as the author's call unless the owner decided it. Where an answer
+here conflicts with an earlier section, this section wins.
+
+1. **Off-proxy 403s (author's call).** *Every* 403 from a direct, cookie-less fetch of a
+   publisher not on the proxy is `blocked`. There's no maintained list of open-access
+   publishers. Reason: these fetches carry no session, so a 403 is a refusal of automated
+   access, not an entitlement answer. Paywalls on such hosts show up as a 200 paywall page,
+   which `looksLikePaywall` already handles.
+2. **Abstract-only text.** *Owner's decision pending, filled in below.*
+3. **Fixtures (author's call).** No page recordings exist yet. The plan includes a live
+   capture step, with a session, for the challenge pages (Springer "Client Challenge",
+   IEEE "verify that you're not a robot", MDPI's 403 body). Those are short publisher
+   boilerplate and are committed trimmed. **No article text is committed.** The Wiley
+   false-positive fixture is synthetic: a page carrying the `cdn-cgi/challenge-platform`
+   script tag plus generated filler paragraphs long enough to count as an article.
+4. **`readUrl` precedence (author's call).**
+   - **Proxied publisher:** the `link.ezproxy.neu.edu/login?qurl=…` start URL. It
+     re-establishes the proxy session in the person's browser, whereas a rewritten
+     `*.ezproxy.neu.edu` URL may depend on server-side session state.
+   - **Overlap:** when a proxied link and an open-access copy (found but not extractable)
+     both apply, `readUrl` is the proxied publisher link, because that's the published
+     version. The message also names the open-access copy's URL.
+   - **Not on the proxy:** the publisher or `doi.org` URL.
+5. **OpenAlex copies with no version (author's call).** Try them last. Label them
+   `version: "unknown"`. `version` is `null` only when the text came from the publisher.
+6. **Where the open-access fallback runs (author's call).** It runs after any final result
+   without usable text: `blocked`, `not_proxied`, `not_entitled`, `login_required`
+   (including no session at all, so clients like Grok Bot on another machine still get
+   free copies), and the abstract-only case (see 2). It runs only when the target has a
+   DOI. Also, before turning a proxied 401/403 into `not_entitled`, check the body with the
+   bot-wall classifier. A challenge page served as 403 becomes `blocked`.
+7. **User-Agent (author's call).** The honest User-Agent (3f) is its own final, droppable
+   commit. If it breaks a publisher that worked before, everything else still ships, and
+   3f waits for the owner.
+8. **Time budget (author's call).** `get_full_text` gets an overall deadline of 60 seconds.
+   The OpenAlex fallback tries at most 3 copies and is skipped when less than 10 seconds
+   are left. If the deadline hits, the call still returns its best result so far, with
+   `readUrl`. The per-request 20-second timeout stays. The exact numbers can be tuned; the
+   rule is that a result with `readUrl` always comes back.
 
 ## Status outcomes after this change (expected)
 
