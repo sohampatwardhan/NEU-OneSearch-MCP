@@ -5,8 +5,11 @@
 An MCP server for [Northeastern University's Scholar OneSearch](https://onesearch.library.northeastern.edu).
 Lets Claude search NEU's library catalog and article databases for academic references.
 
-Search works fully anonymously — an optional login exists (see "Logging in" below), but see that section for what it does and doesn't currently do.
-See `docs/superpowers/specs/2026-07-22-onesearch-mcp-design.md` and `docs/superpowers/specs/2026-07-22-onesearch-auth-design.md` for the full design and research behind this.
+Search works fully anonymously. A one-time NEU sign-in (see "Signing in" below) caches a library
+session on your device so features that need it can reuse it, and so tools report `login_required`
+instead of failing silently when it expires.
+See `docs/superpowers/specs/2026-07-22-onesearch-mcp-design.md` and `docs/superpowers/specs/2026-07-22-onesearch-auth-design.md`,
+and the spec in `.kiro/specs/shibboleth-auth/`, for the full design and research behind this.
 
 ## Install
 
@@ -121,11 +124,23 @@ Antigravity has no CLI or documented config path, so it isn't handled by `instal
 }
 ```
 
-## Logging in (optional, no current effect on search results)
+## Signing in
 
-Search works fully anonymously with no login.
-The `neu-onesearch-login` command drives a real browser through NEU's actual SSO login and saves the resulting session for `search_onesearch`/`get_record` to attach automatically.
-It opens your installed Google Chrome, so Chrome must be installed.
+Search and record metadata work fully anonymously, with no login. Sign-in exists so that
+features needing an authenticated Northeastern session (full text through the library EZproxy)
+can reuse your session, and so the tools can tell you clearly when that session has expired.
+Your password is only ever typed on NU IT's own page — this project never sees, stores, or logs it.
+
+Sign-in drives a dedicated Google Chrome profile, so Chrome must be installed. It uses its own
+profile (not your everyday Chrome), because Chrome blocks automation on the normal profile and
+ties its cookie encryption to it.
+
+From a checkout:
+
+```bash
+npm run build
+node dist/login.js      # or: neu-onesearch-login
+```
 
 From npm:
 
@@ -133,23 +148,68 @@ From npm:
 npx -y -p @sohampatwardhan/neu-onesearch-mcp@latest neu-onesearch-login
 ```
 
-From a checkout:
+What happens:
+
+1. A dedicated Chrome window opens on Scholar OneSearch. Complete NEU's real SSO (SAML + Duo)
+   there, then press Enter in the terminal.
+2. The same window opens a library EZproxy link so EZproxy sets its own session cookie. Approve
+   any extra NU IT / Duo prompt. If the page says "Authenticate with Northeastern credentials",
+   finish that.
+3. The OneSearch and EZproxy session cookies, plus the capture time, are cached on your device.
+   The command reports whether an EZproxy cookie was captured — by cookie name only, never by value.
+
+### Where the session lives
+
+Everything is under `~/.cache/neu-onesearch-mcp/`, owner-only:
+
+| Path | Permissions | Contents |
+| --- | --- | --- |
+| `profile/` | `0700` | the dedicated Chrome profile (keeps the NU IdP session and Duo "remember this device") |
+| `session.json` | `0600` | the captured cookies and capture time — a live library session, no password |
+
+Set `NEU_ONESEARCH_CACHE_DIR` to move this directory. That is a path only; there is no environment
+variable for a password or a raw cookie. The MCP server and the login command must run as the same
+user on the same machine. Do not commit `session.json`, paste it into chat, or copy it to another
+computer — anyone who can read it can use the proxy as you until the session expires.
+
+### Session lifetime and re-login
+
+NEU / EZproxy set the session lifetime; for v1 it is treated as short (roughly one hour — to be
+confirmed by a live measurement). There is no refresh token. When a session expires, tools return a
+`login_required` result telling you to run the login command again — they never fail silently. Because
+the dedicated profile keeps your NU IdP session and Duo's "remember this device", a re-login while that
+IdP session is still alive is usually one click or one Duo push, with no password.
+
+### Signing out
 
 ```bash
-npm run build
-node dist/login.js
+node dist/logout.js    # or: neu-onesearch-logout
 ```
 
-A real browser window opens to NEU's actual SSO login page — complete your login there (your password never touches this codebase), then press Enter in the terminal.
-Your session is saved to `~/.neu-onesearch-mcp/session.json` (owner-only permissions).
-No session file present → fully anonymous behavior, unchanged from before.
+This deletes `session.json` and the `profile/` directory. It is safe to run when you are already
+signed out. After logout, a tool that needs the session returns `login_required`.
 
-**Honest status:** live testing (a real login, tested against three different catalog items including one with a full-text proxy link) found **no observable difference** in `search_onesearch`/`get_record` results with a valid session, an invalidated session, or no session at all — same availability, same holdings data, same full-text links, every time.
-Logging in does not currently improve anything these two tools return.
-It exists as groundwork for features that genuinely need patron identity (e.g. saved favorites/lists, placing holds) — those aren't built yet.
-If you don't need those, there's no reason to log in today.
+### Running on a remote machine (e.g. a server, Grok Bot box, or Muse)
 
-Sessions are not auto-detected as expired, since live testing found nothing to detect at this layer — session validity doesn't appear to affect these API responses at all.
+Sign-in needs an interactive browser, and a localhost OAuth callback cannot capture SAML cookies from
+another machine. Two paths:
+
+- **Today:** sign in on the server itself over a remote desktop (for example a Tailscale connection to
+  that box), so the dedicated Chrome window and your Duo prompt appear where you can complete them. The
+  cached session then lives on the server for the MCP running there.
+- **Later:** a small browser extension could post the captured cookies to the MCP's local endpoint
+  (`127.0.0.1` or a Tailscale IP). This is not built yet; it is noted as the intended remote path. A
+  remote HTTP transport with an OAuth-to-SAML shim is tracked separately (see issue #1) and is out of
+  scope here.
+
+### What signing in does and does not change
+
+Live testing of `search_onesearch` and `get_record` found no observable difference between a valid
+session, an expired session, and no session at all — those two tools stay anonymous in behavior, and a
+cached session does not change their metadata results. Signing in matters for authenticated full-text
+access through EZproxy (a separate tool, tracked in issue #2) and for surfacing `login_required` when the
+session is gone. Patron features that need an Alma identity (saved lists, holds, request history) are not
+implemented.
 
 ## Tools
 
@@ -158,6 +218,8 @@ Sessions are not auto-detected as expired, since live testing found nothing to d
   `campus` restricts to one NEU campus/scope (`all` (default), `boston`, `oakland`, or `online`) — `all` is genuine all-campus results (`CDI_plus_all_local`), not just Boston + central index.
 - `get_record(recordId)` — fetch full detail (abstract, table of contents, availability, full-text link) for one result from a prior search.
   Only supports NEU catalog records (`recordId` starting with `alma`).
+
+When a cached session has been attached and NEU bounces the request to sign in (or rejects the cookie with 401/403), a tool returns a JSON result with `"status": "login_required"` and a message telling you to run the login command again, instead of failing silently or returning an empty result. With no cached session, behavior is unchanged anonymous search.
 
 Each mapped result includes `catalogUrl`, `doiUrl`, and `ezproxyDoiUrl` (the latter two only when a DOI is present).
 `catalogUrl` points at the OneSearch discovery record itself and can show a "sign in or access from campus network" wall for CDI-sourced (`cdi_*`) records if you aren't already signed into OneSearch in that browser — this is Primo VE's own frontend access control, unaffected by anything this server does.
@@ -182,6 +244,17 @@ Hits the real OneSearch endpoint — not part of `npm test`, run manually to con
 ```bash
 npm run build && node scripts/smoke-test.mjs
 ```
+
+### Manual sign-in smoke test (human, needs Chrome + an NU account)
+
+The automated suite mocks the browser and the IdP, so it never performs a real sign-in. On a machine
+with Google Chrome and NU IT credentials, verify the end-to-end flow by hand:
+
+1. `node dist/login.js` — complete SSO + Duo, confirm the "EZproxy session captured" line.
+2. Call a tool and confirm it reuses the cached session.
+3. Let the session sit until it expires (this also measures the real lifetime to replace the
+   "roughly one hour" estimate above), then confirm a tool returns `login_required`.
+4. `node dist/logout.js` — confirm `~/.cache/neu-onesearch-mcp/session.json` and `profile/` are gone.
 
 ## Releasing
 

@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Browser SSO sign-in through a dedicated, persistent Playwright Chrome
+  profile (`channel: chrome`), so the NEU IdP session and Duo "remember this
+  device" survive between runs and re-login is usually one click. Captured
+  OneSearch and EZproxy cookies plus the capture time are cached owner-only
+  under `~/.cache/neu-onesearch-mcp/` (`0700` dir, `0600` file). No password
+  is ever stored, and cookie values are never printed. `NEU_ONESEARCH_CACHE_DIR`
+  moves the cache (path only). Session lifetime is treated as short for v1
+  (about one hour, to verify).
+- `neu-onesearch-logout` (`dist/logout.js`) deletes the cached session and the
+  browser profile. Idempotent.
+- A `login_required` result: when a cached session is attached and NEU bounces
+  to sign in or rejects the cookie (301/302 to an SSO host, or 401/403), tools
+  return `{"status":"login_required"}` with guidance to run login again,
+  instead of failing silently. Anonymous (no-session) behavior is unchanged.
 - Published to npm as `@sohampatwardhan/neu-onesearch-mcp`, runnable with
   `npx -y @sohampatwardhan/neu-onesearch-mcp@latest`. A second bin,
   `neu-onesearch-login`, runs the optional NEU login.
