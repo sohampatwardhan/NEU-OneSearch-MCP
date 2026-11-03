@@ -36,29 +36,19 @@ async function fetchPrimo(params: URLSearchParams): Promise<PrimoSearchResponse>
 }
 
 export function buildFacetClause(params: SearchOneSearchParams): string {
-  const hasResourceType = params.resourceType !== undefined;
-  const hasDateRange = params.dateFrom !== undefined || params.dateTo !== undefined;
-  const hasPeerReviewed = params.peerReviewedOnly === true;
-  const facetCount = [hasResourceType, hasDateRange, hasPeerReviewed].filter(Boolean).length;
-
-  if (facetCount > 1) {
-    throw new Error(
-      'OneSearch only supports one filter per search: resourceType, a date range, or peerReviewedOnly. Please provide only one.'
-    );
+  const clauses: string[] = [];
+  if (params.resourceType !== undefined) {
+    clauses.push(`facet_rtype,include,${params.resourceType}`);
   }
-
-  if (hasResourceType) {
-    return `facet_rtype,include,${params.resourceType}`;
-  }
-  if (hasDateRange) {
+  if (params.dateFrom !== undefined || params.dateTo !== undefined) {
     const from = params.dateFrom ?? 1000;
     const to = params.dateTo ?? new Date().getFullYear();
-    return `facet_searchcreationdate,include,[${from} TO ${to}]`;
+    clauses.push(`facet_searchcreationdate,include,[${from} TO ${to}]`);
   }
-  if (hasPeerReviewed) {
-    return 'facet_tlevel,include,peer_reviewed';
+  if (params.peerReviewedOnly === true) {
+    clauses.push('facet_tlevel,include,peer_reviewed');
   }
-  return '';
+  return clauses.join('|,|');
 }
 
 export function buildSearchParams(params: SearchOneSearchParams): URLSearchParams {

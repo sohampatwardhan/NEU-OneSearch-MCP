@@ -38,10 +38,10 @@ export function createServer(): McpServer {
         resourceType: z
           .enum(['articles', 'journals', 'books', 'newspaper_articles', 'reviews', 'book_chapters', 'dissertations'])
           .optional()
-          .describe('Filter to one resource type'),
-        dateFrom: z.number().int().optional().describe('Earliest publication year'),
-        dateTo: z.number().int().optional().describe('Latest publication year'),
-        peerReviewedOnly: z.boolean().optional().describe('Only return peer-reviewed results'),
+          .describe('Filter to one resource type (combines with the other filters, AND)'),
+        dateFrom: z.number().int().optional().describe('Earliest publication year (combines with the other filters, AND)'),
+        dateTo: z.number().int().optional().describe('Latest publication year (combines with the other filters, AND)'),
+        peerReviewedOnly: z.boolean().optional().describe('Only return peer-reviewed results (combines with the other filters, AND)'),
         sort: z.enum(['rank', 'date', 'title', 'author']).optional().describe('Sort order (default rank)'),
         campus: z
           .enum(['all', 'boston', 'oakland', 'online'])

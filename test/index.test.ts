@@ -68,7 +68,12 @@ describe('MCP server tools', () => {
     expect(calledUrl).toContain('scope=Mills_and_CI');
   });
 
-  it('search_onesearch surfaces a facet-conflict error as a tool error', async () => {
+  it('search_onesearch combines filters into one qInclude clause', async () => {
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: async () => ({ info: { total: 0 }, docs: [] }),
+    });
+
     const client = await connectedClient(createServer());
     const result = await client.request(
       {
@@ -81,8 +86,10 @@ describe('MCP server tools', () => {
       CallToolResultSchema
     );
 
-    expect(result.isError).toBe(true);
-    expect((result.content[0] as { text: string }).text).toContain('only supports one filter');
+    expect(result.isError).toBeFalsy();
+    const calledUrl = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    const qInclude = new URL(calledUrl).searchParams.get('qInclude');
+    expect(qInclude).toBe('facet_rtype,include,books|,|facet_tlevel,include,peer_reviewed');
   });
 
   it('get_record returns an error message for unsupported record ids', async () => {

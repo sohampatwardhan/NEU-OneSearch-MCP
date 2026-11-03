@@ -29,10 +29,24 @@ describe('buildFacetClause', () => {
     );
   });
 
-  it('throws when more than one filter is requested at once', () => {
-    expect(() =>
-      buildFacetClause({ query: 'test', resourceType: 'articles', peerReviewedOnly: true })
-    ).toThrow(/only supports one filter/);
+  it('joins all filters with |,| in a fixed order', () => {
+    expect(
+      buildFacetClause({ query: 'x', resourceType: 'articles', dateFrom: 2020, dateTo: 2026, peerReviewedOnly: true })
+    ).toBe(
+      'facet_rtype,include,articles|,|facet_searchcreationdate,include,[2020 TO 2026]|,|facet_tlevel,include,peer_reviewed'
+    );
+  });
+
+  it('joins peer-reviewed with an open-ended date range (the #11 query)', () => {
+    expect(buildFacetClause({ query: 'x', peerReviewedOnly: true, dateFrom: 2020 })).toBe(
+      `facet_searchcreationdate,include,[2020 TO ${new Date().getFullYear()}]|,|facet_tlevel,include,peer_reviewed`
+    );
+  });
+
+  it('passes the joined clause through buildSearchParams', () => {
+    expect(buildSearchParams({ query: 'x', resourceType: 'books', peerReviewedOnly: true }).get('qInclude')).toBe(
+      'facet_rtype,include,books|,|facet_tlevel,include,peer_reviewed'
+    );
   });
 });
 
