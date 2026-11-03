@@ -630,3 +630,16 @@ describe('Elsevier linkinghub redirect and abstract-only pages', () => {
     expect(r.textKind).toBe('abstract');
   });
 });
+
+describe('overall deadline', () => {
+  it('a call that outlives the deadline still returns readUrl', async () => {
+    const fetchImpl = vi.fn(() => new Promise<Response>(() => {}));
+    const result = await getFullText(
+      { doi: '10.1371/journal.pone.0212767' },
+      { fetchImpl, sessionPath: ezproxySession(), deadlineMs: 50 }
+    );
+    expect(result.status).toBe('error');
+    expect(result.readUrl).not.toBeNull();
+    expect(result.message).toMatch(/Timed out after 50ms/);
+  });
+});

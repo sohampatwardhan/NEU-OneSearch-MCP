@@ -30,6 +30,7 @@ import {
 import { classifyEzproxySession, loadStoredCookies, type EzproxySessionState } from './session.js';
 import { sessionCachePath } from './cache.js';
 import type { MappedResult } from './types.js';
+import { createDeadline, type Deadline } from './deadline.js';
 import { emptyResult, finalizeResult, type FullTextResult, type FullTextStatus, type TextKind } from './fullTextResult.js';
 
 export { emptyResult, finalizeResult, LIMITS_VIEW } from './fullTextResult.js';
@@ -50,7 +51,13 @@ export interface GetFullTextOptions {
   maxPdfPages?: number;
   maxRedirects?: number;
   timeoutMs?: number;
+  /** Overall cap for the whole call. Default 60_000. */
+  deadlineMs?: number;
+  /** Clock for the overall deadline (separate from `nowMs`, which is for session expiry). */
+  clock?: () => number;
 }
+
+const DEFAULT_DEADLINE_MS = 60_000;
 
 interface ResolvedTarget {
   doi: string | null;
@@ -536,11 +543,50 @@ async function followLinkingHub(fetched: ProxyFetchResult, options: GetFullTextO
 export async function getFullText(input: GetFullTextInput, options: GetFullTextOptions = {}): Promise<FullTextResult> {
   const target = await resolveTarget(input);
   if ('status' in target) return finalizeResult(target, null);
-  return finalizeResult(await fetchFullText(target, options), target.readUrl);
+
+  const deadlineMs = options.deadlineMs ?? DEFAULT_DEADLINE_MS;
+  const deadline = createDeadline(deadlineMs, options.clock);
+  const perRequestMs = options.timeoutMs ?? FULL_TEXT_LIMITS.timeoutMs;
+  // Each fetch reads timeoutMs when it starts (directly or via a spread), so a getter
+  // keeps every request capped by whatever remains of the overall deadline.
+  const capped: GetFullTextOptions = {
+    ...options,
+    get timeoutMs() {
+      return Math.min(perRequestMs, deadline.remainingMs());
+    },
+  };
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<FullTextResult>((resolve) => {
+    timer = setTimeout(
+      () =>
+        resolve(
+          emptyResult({
+            status: 'error',
+            doi: target.doi,
+            recordId: target.recordId,
+            title: target.title,
+            sourceUrl: target.startUrl,
+            message: `Timed out after ${deadlineMs}ms.`,
+          })
+        ),
+      deadlineMs
+    );
+  });
+  try {
+    const result = await Promise.race([fetchFullText(target, capped, deadline), timedOut]);
+    return finalizeResult(result, target.readUrl);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
-async function fetchFullText(target: ResolvedTarget, options: GetFullTextOptions): Promise<FullTextResult> {
-
+// `deadline` is the hook for the open-access fallback (skipped when little time remains).
+async function fetchFullText(
+  target: ResolvedTarget,
+  options: GetFullTextOptions,
+  _deadline: Deadline
+): Promise<FullTextResult> {
   const sessionPath = options.sessionPath ?? sessionCachePath();
   const cookies = loadStoredCookies(sessionPath);
   const sessionState = classifyEzproxySession(cookies, options.nowMs);
