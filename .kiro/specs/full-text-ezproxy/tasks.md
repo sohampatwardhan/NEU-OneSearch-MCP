@@ -57,7 +57,7 @@ flowchart TB
     covers the added dependency and the new test files; no change needed
   - Gates every later task: it must pass before task 2 starts
 
-- [ ] 2. Add the PDF dependency and the EZproxy session classifier
+- [x] 2. Add the PDF dependency and the EZproxy session classifier
   - Add `pdfjs-dist` pinned to `3.11.174` to `dependencies` in `package.json`
     and update `package-lock.json`
   - Add `classifyEzproxySession` and `EzproxySessionState` to `src/session.ts`,
