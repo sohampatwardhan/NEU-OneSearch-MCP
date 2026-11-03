@@ -543,3 +543,90 @@ describe('blocked status', () => {
     expect(r.message.split(MDPI).length - 1).toBe(1);
   });
 });
+
+describe('Elsevier linkinghub redirect and abstract-only pages', () => {
+  const fixture = (name: string) => readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'fixtures', name), 'utf-8');
+  const htmlResponse = (body: string, headers: Record<string, string> = {}) =>
+    new Response(body, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8', ...headers } });
+  const DOI = '10.1016/j.cose.2025.104509';
+  const HUB = 'https://linkinghub-elsevier-com.ezproxy.neu.edu/retrieve/pii/S0167404825001981';
+  const SD = 'https://www-sciencedirect-com.ezproxy.neu.edu/science/article/pii/S0167404825001981';
+  const abstractOnly = fixture('elsevier-abstract-only.html');
+  const fullBody = abstractOnly.replace(
+    '<section id="da1">',
+    `<div id="body" class="Body"><section id="sec1"><h2>1. Introduction</h2><p>${'Synthetic body text. '.repeat(1500)}</p></section></div><section id="da1">`
+  );
+
+  /** link (DOI) -> linkinghub page; link (ScienceDirect qurl) -> proxied ScienceDirect page. */
+  function elsevierFetch(sciencedirect: () => Response) {
+    return vi.fn(async (url: string) => {
+      if (url.startsWith('https://link.ezproxy.neu.edu/') && url.includes('sciencedirect')) {
+        return new Response(null, { status: 302, headers: { location: SD } });
+      }
+      if (url.startsWith('https://link.ezproxy.neu.edu/')) {
+        return new Response(null, { status: 302, headers: { location: HUB } });
+      }
+      if (url === HUB) {
+        return htmlResponse(fixture('elsevier-linkinghub.html'), {
+          'set-cookie': 'hub=from-linkinghub; Domain=.ezproxy.neu.edu; Path=/',
+        });
+      }
+      if (url === SD) return sciencedirect();
+      throw new Error(`unexpected request ${url}`);
+    });
+  }
+
+  it('follows the Elsevier linkinghub redirect instead of returning "Redirecting"', async () => {
+    const fetchImpl = elsevierFetch(() => htmlResponse(fullBody));
+    const r = await getFullText({ doi: DOI }, { fetchImpl, sessionPath: ezproxySession() });
+    expect(r.status).toBe('ok');
+    expect(r.text).not.toBe('Redirecting');
+    expect(r.text).toContain('Synthetic body text.');
+    expect(r.sourceUrl).toBe(SD);
+
+    const urls = fetchImpl.mock.calls.map((call) => String(call[0]));
+    const hubIndex = urls.indexOf(HUB);
+    expect(hubIndex).toBeGreaterThanOrEqual(0);
+    expect(urls[hubIndex + 1]).toContain('sciencedirect');
+    expect(urls[hubIndex + 1]).toMatch(/^https:\/\/link\.ezproxy\.neu\.edu\/login\?qurl=/);
+    const hopInit = fetchImpl.mock.calls[hubIndex + 1][1] as RequestInit;
+    expect((hopInit.headers as Record<string, string>).Cookie).toContain('hub=from-linkinghub');
+  });
+
+  it('the linkinghub hop counts toward maxRedirects', async () => {
+    const fetchImpl = elsevierFetch(() => htmlResponse(fullBody));
+    const r = await getFullText({ doi: DOI }, { fetchImpl, sessionPath: ezproxySession(), maxRedirects: 1 });
+    expect(r.status).toBe('error');
+    expect(r.message).toMatch(/Stopped after 1 proxy redirects/);
+    expect(fetchImpl.mock.calls.map((call) => String(call[0]))).not.toContain(SD);
+  });
+
+  it('an abstract-only page is partial with textKind abstract and the abstract prefix', async () => {
+    const fetchImpl = elsevierFetch(() => htmlResponse(abstractOnly));
+    const r = await getFullText({ doi: DOI }, { fetchImpl, sessionPath: ezproxySession() });
+    expect(r.status).toBe('partial');
+    expect(r.fullText).toBe(false);
+    expect(r.textKind).toBe('abstract');
+    expect(r.text).toContain('This synthetic abstract sentence');
+    expect(r.message.startsWith('Abstract only. Full text was not retrieved: ')).toBe(true);
+    expect(r.readUrl).toMatch(/^https:\/\/link\.ezproxy\.neu\.edu\/login\?qurl=/);
+  });
+
+  it('a failed PDF hop that lands on an abstract page is not ok', async () => {
+    const abstractPage = `<html><head><meta name="citation_pdf_url" content="https://publisher.example/a.pdf"></head>
+      <body><main><h1>A Title</h1><h2>Abstract</h2><p>${'An invented abstract sentence for the fallback case. '.repeat(55)}</p>
+      <p>Cite this article</p></main></body></html>`;
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url.includes(encodeURIComponent('https://publisher.example/a.pdf'))) {
+        return htmlResponse('<html><body><p>Download failed.</p></body></html>');
+      }
+      return htmlResponse(abstractPage);
+    });
+    const r = await getFullText({ doi: '10.1000/abstract1' }, { fetchImpl, sessionPath: ezproxySession() });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(r.charCount).toBeGreaterThanOrEqual(2500);
+    expect(r.status).not.toBe('ok');
+    expect(r.status).toBe('partial');
+    expect(r.textKind).toBe('abstract');
+  });
+});

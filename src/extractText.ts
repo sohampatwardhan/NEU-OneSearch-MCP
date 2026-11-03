@@ -168,6 +168,87 @@ export function looksLikeBotWall(html: string, text: string): boolean {
   return WEAK_BOT_WALL_RE.test(html) && text.length < BOT_WALL_MAX_TEXT_CHARS;
 }
 
+const LINKING_HUB_HOSTS = new Set(['linkinghub.elsevier.com', 'linkinghub-elsevier-com.ezproxy.neu.edu']);
+
+/**
+ * Elsevier's linkinghub answers a DOI with a "Redirecting" page whose hidden `redirectURL`
+ * field holds the ScienceDirect URL, percent-encoded. Returns that URL (http or https only),
+ * resolved against ScienceDirect, or null when `pageUrl` is not on linkinghub.
+ */
+export function findLinkingHubRedirect(html: string, pageUrl: string): string | null {
+  let host: string;
+  try {
+    host = new URL(pageUrl).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+  if (!LINKING_HUB_HOSTS.has(host)) return null;
+
+  const inputs = html.match(/<input\b[^>]*>/gi) ?? [];
+  const field = inputs.find((tag) => attribute(tag, 'name') === 'redirectURL');
+  const raw = field ? attribute(field, 'value') : null;
+  if (!raw) return null;
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(raw);
+  } catch {
+    return null;
+  }
+  try {
+    const url = new URL(decoded, 'https://www.sciencedirect.com');
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
+// ScienceDirect (seen live 2026-11-03): an article page served through the proxy carries the
+// abstract in div#abstracts, and the article body, when the page has it, in div#body. Pages
+// without div#body hold only the abstract, highlights, keywords and author notes, even for
+// entitled open-access articles. Real articles run well past the cap; it guards against
+// ScienceDirect renaming its body container and every article reading as abstract-only.
+const SCIENCEDIRECT_ABSTRACT_RE = /<(?:div|section)\b[^>]*\bid\s*=\s*["']abstracts["']/i;
+const SCIENCEDIRECT_BODY_RE = /<(?:div|section)\b[^>]*\bid\s*=\s*["']body["']/i;
+const SCIENCEDIRECT_ABSTRACT_MAX_CHARS = 20_000;
+// Any other page: under this length and mostly a block labelled "Abstract".
+const GENERIC_ABSTRACT_MAX_CHARS = 4000;
+const GENERIC_ABSTRACT_MIN_SHARE = 0.5;
+const ABSTRACT_LABEL_RE = /^abstract\s*:?$/i;
+const HEADING_MAX_CHARS = 60;
+
+/** Characters in the text block that follows a line reading "Abstract", up to the next heading-like line. */
+function abstractBlockChars(text: string): number {
+  const lines = text.split('\n').map((line) => line.trim());
+  const start = lines.findIndex((line) => ABSTRACT_LABEL_RE.test(line));
+  if (start < 0) return 0;
+  let chars = 0;
+  for (const line of lines.slice(start + 1)) {
+    if (!line) continue;
+    const headingLike = line.length <= HEADING_MAX_CHARS && !/[.!?]$/.test(line);
+    if (headingLike && chars > 0) break;
+    chars += line.length;
+  }
+  return chars;
+}
+
+/**
+ * True when the page shows an abstract (and metadata) but not the article body.
+ * ScienceDirect: an abstract container with no body container. Elsewhere: text under
+ * 4,000 characters, at least half of it the block labelled "Abstract".
+ */
+export function looksLikeAbstractOnly(html: string, text: string): boolean {
+  if (
+    findMetaContent(html, 'citation_pii') &&
+    SCIENCEDIRECT_ABSTRACT_RE.test(html) &&
+    !SCIENCEDIRECT_BODY_RE.test(html) &&
+    text.length < SCIENCEDIRECT_ABSTRACT_MAX_CHARS
+  ) {
+    return true;
+  }
+  if (text.length === 0 || text.length >= GENERIC_ABSTRACT_MAX_CHARS) return false;
+  return abstractBlockChars(text) >= text.length * GENERIC_ABSTRACT_MIN_SHARE;
+}
+
 export function looksLikeHtml(bytes: Uint8Array, contentType: string): boolean {
   const type = contentType.toLowerCase();
   if (type.includes('html') || type.includes('xml') || type.startsWith('text/')) return true;

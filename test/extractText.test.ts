@@ -4,9 +4,11 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   extractPdfText,
+  findLinkingHubRedirect,
   findMetaContent,
   findPreferredPdfUrl,
   htmlToText,
+  looksLikeAbstractOnly,
   looksLikeBotWall,
   looksLikePaywall,
 } from '../src/extractText.js';
@@ -100,5 +102,82 @@ describe('looksLikeBotWall', () => {
 
   it('a weak marker on a nearly empty page matches', () => {
     expect(looksLikeBotWall('<script src="/cdn-cgi/challenge-platform/h/b"></script>', 'tiny')).toBe(true);
+  });
+});
+
+const readFixture = (name: string) =>
+  readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'fixtures', name), 'utf8');
+
+describe('findLinkingHubRedirect', () => {
+  const html = readFixture('elsevier-linkinghub.html');
+  const EXPECTED = 'https://www.sciencedirect.com/science/article/pii/S0167404825001981?via%3Dihub';
+
+  it('decodes the redirectURL field on the proxied linkinghub host', () => {
+    expect(
+      findLinkingHubRedirect(html, 'https://linkinghub-elsevier-com.ezproxy.neu.edu/retrieve/pii/S0167404825001981')
+    ).toBe(EXPECTED);
+  });
+
+  it('decodes the redirectURL field on linkinghub.elsevier.com', () => {
+    expect(findLinkingHubRedirect(html, 'https://linkinghub.elsevier.com/retrieve/pii/S0167404825001981')).toBe(EXPECTED);
+  });
+
+  it('ignores the same HTML on any other host', () => {
+    expect(findLinkingHubRedirect(html, 'https://www-sciencedirect-com.ezproxy.neu.edu/science/article/pii/X')).toBeNull();
+    expect(findLinkingHubRedirect(html, 'https://linkinghub.elsevier.com.evil.example/retrieve/pii/X')).toBeNull();
+  });
+
+  it('resolves a relative value against ScienceDirect and refuses non-http values', () => {
+    const page = (value: string) => `<input type="hidden" name="redirectURL" value="${value}" id="redirectURL"/>`;
+    const hub = 'https://linkinghub.elsevier.com/retrieve/pii/X';
+    expect(findLinkingHubRedirect(page('%2Fscience%2Farticle%2Fpii%2FX'), hub)).toBe(
+      'https://www.sciencedirect.com/science/article/pii/X'
+    );
+    expect(findLinkingHubRedirect(page('javascript%3Aalert(1)'), hub)).toBeNull();
+    expect(findLinkingHubRedirect('<p>Redirecting</p>', hub)).toBeNull();
+  });
+});
+
+describe('looksLikeAbstractOnly', () => {
+  const abstractOnly = readFixture('elsevier-abstract-only.html');
+  const withBody = abstractOnly.replace(
+    '<section id="da1">',
+    `<div id="body" class="Body"><section id="sec1"><h2>1. Introduction</h2><p>${'Synthetic body text. '.repeat(1500)}</p></section></div><section id="da1">`
+  );
+
+  it('a ScienceDirect page with an abstract block and no body container is abstract only', () => {
+    const text = htmlToText(abstractOnly);
+    expect(text.length).toBeGreaterThan(4000);
+    expect(looksLikeAbstractOnly(abstractOnly, text)).toBe(true);
+  });
+
+  it('the same page with its body container is not abstract only', () => {
+    expect(looksLikeAbstractOnly(withBody, htmlToText(withBody))).toBe(false);
+  });
+
+  const abstractPage = (abstract: string, extra = '') =>
+    `<html><body><main><h1>A Title</h1><h2>Abstract</h2><p>${abstract}</p>${extra}</main></body></html>`;
+
+  it('a short generic page that is mostly an Abstract block is abstract only', () => {
+    const html = abstractPage('An invented abstract sentence for the generic rule. '.repeat(50), '<p>Cite this article</p>');
+    const text = htmlToText(html);
+    expect(text.length).toBeGreaterThan(2500);
+    expect(text.length).toBeLessThan(4000);
+    expect(looksLikeAbstractOnly(html, text)).toBe(true);
+  });
+
+  it('a generic page of 4,000 characters or more is not abstract only', () => {
+    const html = abstractPage('An invented abstract sentence for the generic rule. '.repeat(80));
+    expect(looksLikeAbstractOnly(html, htmlToText(html))).toBe(false);
+  });
+
+  it('a short page whose Abstract block is a small part of the text is not abstract only', () => {
+    const html = abstractPage('A short invented abstract.', `<h2>Introduction</h2><p>${'Invented body sentence here. '.repeat(100)}</p>`);
+    expect(looksLikeAbstractOnly(html, htmlToText(html))).toBe(false);
+  });
+
+  it('a short page with no Abstract label is not abstract only', () => {
+    const html = `<html><body><main><p>${'Invented landing page text. '.repeat(100)}</p></main></body></html>`;
+    expect(looksLikeAbstractOnly(html, htmlToText(html))).toBe(false);
   });
 });

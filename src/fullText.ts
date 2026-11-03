@@ -17,9 +17,11 @@ import {
 import {
   decodeBody,
   extractPdfText,
+  findLinkingHubRedirect,
   findMetaContent,
   findPreferredPdfUrl,
   htmlToText,
+  looksLikeAbstractOnly,
   looksLikeBotWall,
   looksLikeHtml,
   looksLikePaywall,
@@ -28,7 +30,7 @@ import {
 import { classifyEzproxySession, loadStoredCookies, type EzproxySessionState } from './session.js';
 import { sessionCachePath } from './cache.js';
 import type { MappedResult } from './types.js';
-import { emptyResult, finalizeResult, type FullTextResult, type FullTextStatus } from './fullTextResult.js';
+import { emptyResult, finalizeResult, type FullTextResult, type FullTextStatus, type TextKind } from './fullTextResult.js';
 
 export { emptyResult, finalizeResult, LIMITS_VIEW } from './fullTextResult.js';
 export type { FullTextResult, FullTextStatus, TextKind, CopyVersion } from './fullTextResult.js';
@@ -283,6 +285,7 @@ function textFromHtml(
   const paywall = looksLikePaywall(html);
   let status: FullTextStatus;
   let message: string;
+  let textKind: TextKind | null = null;
   if (paywall && text.length < 8000) {
     status = 'not_entitled';
     message =
@@ -291,6 +294,11 @@ function textFromHtml(
     status = 'partial';
     message =
       'The HTML page contains access-wall language and no separate PDF was downloaded. The text may mix the article with subscription prompts. Treat it as incomplete.';
+  } else if (text.length > 0 && looksLikeAbstractOnly(html, text)) {
+    status = 'partial';
+    textKind = 'abstract';
+    message =
+      'The publisher page shows the abstract and article details but not the article body, and no PDF was retrieved. Use the abstract to judge whether the article is worth opening.';
   } else if (text.length >= 2500) {
     status = 'ok';
     message =
@@ -317,6 +325,7 @@ function textFromHtml(
     sourceUrl,
     contentType,
     via: 'html',
+    textKind,
     truncated: clipped.truncated,
     charCount: clipped.text.length,
     text: clipped.text || null,
@@ -504,6 +513,26 @@ function httpFailure(response: Extract<ProxyFetchResult, { kind: 'response' }>, 
   return null;
 }
 
+/**
+ * Elsevier's linkinghub answers 200 with a "Redirecting" page instead of an HTTP redirect.
+ * Follow its target once through the proxy with the response's cookie jar. The hop and any
+ * redirects after it share the `maxRedirects` budget with the first chain.
+ */
+async function followLinkingHub(fetched: ProxyFetchResult, options: GetFullTextOptions): Promise<ProxyFetchResult> {
+  if (fetched.kind !== 'response' || fetched.httpStatus >= 400) return fetched;
+  if (!looksLikeHtml(fetched.body, fetched.contentType)) return fetched;
+  const target = findLinkingHubRedirect(decodeBody(fetched.body, fetched.contentType), fetched.finalUrl);
+  const next = target ? toEzproxyFetchUrl(target) : null;
+  if (!next) return fetched;
+
+  const maxRedirects = options.maxRedirects ?? FULL_TEXT_LIMITS.maxRedirects;
+  const remaining = maxRedirects - fetched.redirects - 1;
+  if (remaining < 0) {
+    return { kind: 'error', finalUrl: fetched.finalUrl, message: `Stopped after ${maxRedirects} proxy redirects.` };
+  }
+  return fetchEzproxyResource(next, fetched.cookies, { ...options, maxRedirects: remaining });
+}
+
 export async function getFullText(input: GetFullTextInput, options: GetFullTextOptions = {}): Promise<FullTextResult> {
   const target = await resolveTarget(input);
   if ('status' in target) return finalizeResult(target, null);
@@ -526,7 +555,8 @@ async function fetchFullText(target: ResolvedTarget, options: GetFullTextOptions
     });
   }
 
-  const fetched = await fetchEzproxyResource(target.startUrl, cookies, options);
+  const first = await fetchEzproxyResource(target.startUrl, cookies, options);
+  const fetched = await followLinkingHub(first, options);
   if (fetched.kind === 'off_proxy') return fullTextDirect(fetched, target, options);
   if (fetched.kind !== 'response') return failureFromProxy(fetched, target);
 

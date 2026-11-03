@@ -58,6 +58,8 @@ export type ProxyFetchResult =
       body: Uint8Array;
       /** Cookie jar after this chain, including Set-Cookie values from EZproxy hops. */
       cookies: StoredCookie[];
+      /** Redirects followed to reach `finalUrl`, so a caller can keep a later hop inside `maxRedirects`. */
+      redirects: number;
     }
   | { kind: 'login_required'; finalUrl: string; message: string }
   /** EZproxy handed the target back unproxied: the publisher is not on NEU's proxy. */
@@ -406,7 +408,8 @@ async function finalResponse(
   response: Response,
   url: URL,
   maxBytes: number,
-  jar: StoredCookie[]
+  jar: StoredCookie[],
+  redirects: number
 ): Promise<ProxyFetchResult> {
   const contentType = response.headers.get('content-type') ?? '';
   const body = await readLimitedBody(response, maxBytes);
@@ -424,6 +427,7 @@ async function finalResponse(
     contentType,
     body: body.bytes,
     cookies: jar,
+    redirects,
   };
 }
 
@@ -517,7 +521,7 @@ export async function fetchEzproxyResource(
       continue;
     }
 
-    return finalResponse(response, url, maxBytes, jar);
+    return finalResponse(response, url, maxBytes, jar, hop);
   }
 
   return {
@@ -721,7 +725,7 @@ export async function fetchPublicResource(startUrl: string, options: ProxyFetchO
       continue;
     }
 
-    return finalResponse(response, url, maxBytes, []);
+    return finalResponse(response, url, maxBytes, [], hop);
   }
 
   return { kind: 'error', finalUrl: url.href, message: `Stopped after ${maxRedirects} publisher redirects.` };
