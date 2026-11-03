@@ -155,7 +155,9 @@ export function toEzproxyFetchUrl(target: string): string | null {
     return url.href;
   }
 
-  return `${EZPROXY_LOGIN_ORIGIN}/login?url=${encodeURIComponent(url.href)}`;
+  // EZproxy reads `url=` raw and `qurl=` percent-encoded. An encoded `url=` is not
+  // honored and lands on the /menu page, so encoded targets must use `qurl=`.
+  return `${EZPROXY_LOGIN_ORIGIN}/login?qurl=${encodeURIComponent(url.href)}`;
 }
 
 /** Route a DOI through NEU's EZproxy login prefix. */
@@ -163,6 +165,23 @@ export function buildEzproxyDoiUrl(doi: string): string | null {
   const doiUrl = doiToHttpsUrl(doi);
   if (!doiUrl) return null;
   return toEzproxyFetchUrl(doiUrl);
+}
+
+/**
+ * True when EZproxy answered with its database menu instead of the target. That
+ * happens with a valid session when the start URL was not accepted, so it is not
+ * a sign-in problem.
+ */
+export function isEzproxyMenuPage(url: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  const host = parsed.hostname.toLowerCase();
+  if (host !== 'login.ezproxy.neu.edu' && host !== 'link.ezproxy.neu.edu') return false;
+  return parsed.pathname.replace(/\/+$/, '') === '/menu';
 }
 
 /** True when a proxied response is EZproxy's own NU IT sign-in page. */
@@ -173,7 +192,7 @@ export function isEzproxyLoginPage(url: string, bodyText: string): boolean {
   } catch {
     return false;
   }
-  if (host === 'login.ezproxy.neu.edu') return true;
+  if (host === 'login.ezproxy.neu.edu' && !isEzproxyMenuPage(url)) return true;
   return bodyText.includes('auth=shibbolethNU') || bodyText.includes('Authenticate with Northeastern credentials');
 }
 

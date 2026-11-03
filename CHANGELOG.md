@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `get_full_text` returned `login_required` even with a valid EZproxy session.
+  Proxied links put a percent-encoded target in `login?url=`, which NEU's
+  EZproxy does not honor, so it showed its database menu instead of the
+  article. Links now use `login?qurl=`, the parameter EZproxy reads encoded, so
+  the target's own query string also survives. The login probe uses the same
+  builder. ([#8](https://github.com/sohampatwardhan/NEU-OneSearch-MCP/issues/8))
+- A landing on EZproxy's `/menu` page is reported as an `error` saying the
+  proxy did not accept the target, instead of telling the user to sign in
+  again.
+
 ## [0.2.0] - 2026-11-02
 
 ### Added

@@ -5,6 +5,7 @@ import {
   fetchEzproxyResource,
   FULL_TEXT_LIMITS,
   isEzproxyLoginPage,
+  isEzproxyMenuPage,
   normalizeDoi,
   toEzproxyFetchUrl,
   type FetchLike,
@@ -468,6 +469,17 @@ export async function getFullText(input: GetFullTextInput, options: GetFullTextO
   }
 
   const html = decodeBody(fetched.body, fetched.contentType);
+  if (isEzproxyMenuPage(fetched.finalUrl)) {
+    return emptyResult({
+      status: 'error',
+      doi: target.doi,
+      recordId: target.recordId,
+      title: target.title,
+      sourceUrl: target.startUrl,
+      message:
+        'EZproxy accepted the session but did not open the target and showed its database menu instead. The start URL was not accepted by the proxy. Signing in again will not help. No article text was retrieved.',
+    });
+  }
   if (isEzproxyLoginPage(fetched.finalUrl, html)) {
     return emptyResult({
       status: 'login_required',

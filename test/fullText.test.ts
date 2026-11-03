@@ -49,7 +49,7 @@ describe('getFullText', () => {
     );
     expect(result.status).toBe('login_required');
     expect(result.text).toBeNull();
-    expect(result.sourceUrl).toContain('https://link.ezproxy.neu.edu/login?url=');
+    expect(result.sourceUrl).toContain('https://link.ezproxy.neu.edu/login?qurl=');
     expect(result.doi).toBe('10.1371/journal.pone.0212767');
     expect(JSON.stringify(result)).not.toContain(COOKIE);
     expect(fetchImpl).not.toHaveBeenCalled();
@@ -97,7 +97,7 @@ describe('getFullText', () => {
 
     const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
     expect(url).toBe(
-      'https://link.ezproxy.neu.edu/login?url=' +
+      'https://link.ezproxy.neu.edu/login?qurl=' +
         encodeURIComponent('https://doi.org/10.1371/journal.pone.0212767')
     );
     expect((init.headers as Record<string, string>).Cookie).toBe(`ezproxy=${COOKIE}`);
@@ -161,6 +161,21 @@ describe('getFullText', () => {
     expect(result.status).toBe('login_required');
     expect(result.text).toBeNull();
     expect(result.message).toMatch(/sign-in page/);
+  });
+
+  it('reports a landing on the EZproxy menu as an error, not login_required', async () => {
+    const html = '<html><head><title>Database Menu</title></head><body>Database Menu</body></html>';
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (String(url).startsWith('https://login.ezproxy.neu.edu/menu')) {
+        return new Response(html, { status: 200, headers: { 'content-type': 'text/html' } });
+      }
+      return new Response(null, { status: 302, headers: { location: 'https://login.ezproxy.neu.edu/menu' } });
+    });
+    const result = await getFullText({ doi: '10.1000/xyz123' }, { fetchImpl, sessionPath: ezproxySession() });
+    expect(result.status).toBe('error');
+    expect(result.text).toBeNull();
+    expect(result.message).toMatch(/database menu/);
+    expect(result.message).not.toMatch(/sign-in page/);
   });
 
   it('maps HTTP 403 to not entitled', async () => {
