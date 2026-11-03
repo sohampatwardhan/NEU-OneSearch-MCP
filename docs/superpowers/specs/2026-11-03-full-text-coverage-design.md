@@ -243,6 +243,58 @@ here conflicts with an earlier section, this section wins.
    `readUrl`. The per-request 20-second timeout stays. The exact numbers can be tuned; the
    rule is that a result with `readUrl` always comes back.
 
+9. **Why abstracts are returned (owner).** The agent can read an abstract and decide whether
+   the paper is worth opening through `readUrl`. The tool description says so.
+10. **Make a missing full text obvious (owner).** If the full text wasn't fetched, the user
+    must be told plainly.
+    - **A `fullText` flag:** every result carries `fullText: boolean`, which is `true` only
+      for `ok`.
+    - **Message wording:** when `fullText` is `false`, the message starts with "Full text was
+      not retrieved" and the reason. Abstract-only results start with "Abstract only. Full
+      text was not retrieved".
+    - **Tool description:** tells the agent to say this plainly to the user and to show
+      `readUrl` as a clickable link.
+
+## 4. Bundled agent skill (owner request, same release)
+
+**Why:** tool descriptions are short. A skill can carry the whole literature-review workflow,
+so any agent harness that installs it uses these tools well. It covers searching with
+combined filters, triaging by abstract, fetching full text, and being honest when the full
+text isn't there.
+
+**Packaging** (verified 2026-11-03 against `skills` 1.7.6 docs, `vercel-labs/skills`):
+- **Location:** `skills/<name>/SKILL.md` in this repo. `npx skills add owner/repo` discovers
+  `skills/` automatically.
+- **Frontmatter:** `name` (lowercase, hyphens) and `description` are required.
+- **Install command:** `npx skills add sohampatwardhan/NEU-OneSearch-MCP --skill
+  neu-literature-review`, with `-a <agent>` / `-g` optional. The CLI itself needs Node 22.20
+  or later. That is the user's tooling, not this package's runtime.
+- **npm package:** also ship it there by adding `skills/**` to package.json `files`, since
+  `skills experimental_sync` finds `skills/<name>/SKILL.md` in installed npm packages. This
+  is the author's call: cheap, and harmless if unused.
+
+**Skill content (author's call; the builder drafts it, the owner reviews it in the PR):**
+- **When to use it:** helping a student or academic with a literature review using
+  Northeastern's library, through this server's tools.
+- **Workflow:**
+  1. Search with combined filters.
+  2. Read abstracts to triage.
+  3. Call `get_full_text` for the papers worth reading.
+  4. Synthesize from the text, citing DOIs.
+- **Honesty rules:**
+  - When `fullText` is false, say so plainly, give the reason, and show `readUrl` as a
+    clickable link.
+  - Never present `partial` or abstract text as the paper.
+  - Mention `version` when the text isn't the published version.
+- **`blocked`:** if the harness has a browser, it may open `readUrl` for the user, who
+  handles any sign-in or check. The agent never tries to get around a bot check.
+- **`login_required`:** tell the user to run `neu-onesearch-login` and complete NEU sign-in
+  and Duo themselves. The agent never types credentials.
+- **Size:** short enough to read in one pass. Author it with the `superpowers:writing-skills`
+  approach: test it on a subagent before shipping.
+
+**README:** a short "Agent skill" section with the install command.
+
 ## Status outcomes after this change (expected)
 
 | Publisher | Expected result |
