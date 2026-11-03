@@ -638,6 +638,20 @@ describe('Elsevier linkinghub redirect and abstract-only pages', () => {
     expect(r.readUrl).toMatch(/^https:\/\/link\.ezproxy\.neu\.edu\/login\?qurl=/);
   });
 
+  it('a short ScienceDirect article with its body container is ok, not abstract only', async () => {
+    const page = `<html><head>
+      <meta name="citation_pii" content="S0000000000000001">
+      <meta name="citation_title" content="A synthetic short article"></head>
+      <body><article><div id="abstracts"><h2>Abstract</h2><p>${'Invented abstract sentence for a short article. '.repeat(10)}</p></div>
+      <div id="body"><section><h2>1. Introduction</h2><p>${'Invented body sentence for a short article. '.repeat(120)}</p></section></div>
+      </article></body></html>`;
+    const fetchImpl = elsevierFetch(() => htmlResponse(page));
+    const r = await getFullText({ doi: DOI }, { fetchImpl, sessionPath: ezproxySession(), openAccess: false });
+    expect(r.charCount).toBeLessThan(20_000);
+    expect(r.status).toBe('ok');
+    expect(r.textKind).toBe('article');
+  });
+
   it('a failed PDF hop that lands on an abstract page is not ok', async () => {
     const abstractPage = `<html><head><meta name="citation_pdf_url" content="https://publisher.example/a.pdf"></head>
       <body><main><h1>A Title</h1><h2>Abstract</h2><p>${'An invented abstract sentence for the fallback case. '.repeat(55)}</p>

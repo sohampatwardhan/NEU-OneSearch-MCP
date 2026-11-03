@@ -136,16 +136,21 @@ export function looksLikePaywall(html: string): boolean {
 
 // Phrases that only appear on an interstitial. Checked in the title and the opening text so
 // an article that merely mentions one deep in its body is not misread.
-const STRONG_BOT_WALL_RE = new RegExp(
-  [
-    'Client Challenge',
-    "verify that you['\u2019]re not a robot",
-    'verify you are (a )?human',
-    'Just a moment\\.\\.\\.',
-    'Enable JavaScript and cookies to continue',
-    'Attention Required! \\| Cloudflare',
-    'please complete the captcha',
-  ].join('|'),
+const STRONG_BOT_WALL_PHRASES = [
+  'Client Challenge',
+  "verify that you['\u2019]re not a robot",
+  'verify you are (a )?human',
+  'Just a moment\\.\\.\\.',
+  'Enable JavaScript and cookies to continue',
+  'Attention Required! \\| Cloudflare',
+  'please complete the captcha',
+].join('|');
+// A phrase run into a hyphenated word ("client challenge-response") is a real title in an h1.
+const STRONG_BOT_WALL_RE = new RegExp(`(?:${STRONG_BOT_WALL_PHRASES})(?![-\u2010\u2011]\\w)`, 'i');
+// In the title the phrase must be the whole title, optionally followed by a spaced site
+// suffix ("Just a moment... | Site"), so "Client challenge-response authentication" is not misread.
+const STRONG_BOT_WALL_TITLE_RE = new RegExp(
+  `^\\s*(?:${STRONG_BOT_WALL_PHRASES})\\s*(?:\\s[|\\-\u2013\u2014]\\s[\\s\\S]*)?$`,
   'i'
 );
 // Passive markers that real pages also carry (Cloudflare injects its challenge script into
@@ -157,11 +162,14 @@ const BOT_WALL_MAX_TEXT_CHARS = 1500;
 export function looksLikeBotWall(html: string, text: string): boolean {
   const title = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1] ?? '';
   // htmlToText drops <noscript>, but challenge pages (IEEE's) put their message only there.
+  // A short noscript notice on a page with real text is an ordinary "enable JavaScript" hint.
   const noscript = (html.match(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi) ?? []).join(' ').replace(/<[^>]+>/g, ' ');
   if (
-    STRONG_BOT_WALL_RE.test(title) ||
+    STRONG_BOT_WALL_TITLE_RE.test(title) ||
     STRONG_BOT_WALL_RE.test(text.slice(0, BOT_WALL_OPENING_CHARS)) ||
-    (noscript.length < BOT_WALL_OPENING_CHARS && STRONG_BOT_WALL_RE.test(noscript))
+    (noscript.length < BOT_WALL_OPENING_CHARS &&
+      text.length < BOT_WALL_MAX_TEXT_CHARS &&
+      STRONG_BOT_WALL_RE.test(noscript))
   ) {
     return true;
   }

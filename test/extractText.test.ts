@@ -100,6 +100,47 @@ describe('looksLikeBotWall', () => {
     expect(looksLikeBotWall('<title>Just a moment...</title><p>hi</p>', 'hi')).toBe(true);
   });
 
+  it.each([
+    'Client Challenge',
+    'Just a moment...',
+    'Attention Required! | Cloudflare',
+    '  Just a moment... | Example Publisher ',
+    'Client Challenge - Example',
+  ])('the interstitial title %j matches', (title) => {
+    expect(looksLikeBotWall(`<title>${title}</title><p>hi</p>`, 'hi')).toBe(true);
+  });
+
+  it.each([
+    'Lightweight client challenge-response authentication for IoT',
+    'Client challenge-response authentication for IoT',
+    'Just a moment...: timing attacks in practice',
+  ])('a real article titled %j is not a bot wall', (title) => {
+    const body = 'Invented article body sentence about authentication protocols. '.repeat(60);
+    const html = `<html><head><title>${title}</title></head>
+      <body><article><p>${body}</p></article></body></html>`;
+    const text = htmlToText(html);
+    expect(text.length).toBeGreaterThan(1500);
+    expect(looksLikeBotWall(html, text)).toBe(false);
+  });
+
+  it('a real article repeating that title in its opening heading is not a bot wall', () => {
+    const body = 'Invented article body sentence about authentication protocols. '.repeat(60);
+    const title = 'Lightweight client challenge-response authentication for IoT';
+    const html = `<html><head><title>${title}</title></head>
+      <body><article><h1>${title}</h1><p>${body}</p></article></body></html>`;
+    expect(looksLikeBotWall(html, htmlToText(html))).toBe(false);
+  });
+
+  it('a long article with a short noscript carrying a strong phrase is not a bot wall', () => {
+    const body = 'Invented article body sentence for the noscript case. '.repeat(60);
+    const html = `<html><head><title>Paper</title></head><body>
+      <noscript>Please enable JavaScript. Enable JavaScript and cookies to continue.</noscript>
+      <article><p>${body}</p></article></body></html>`;
+    const text = htmlToText(html);
+    expect(text.length).toBeGreaterThan(1500);
+    expect(looksLikeBotWall(html, text)).toBe(false);
+  });
+
   it('a weak marker on a nearly empty page matches', () => {
     expect(looksLikeBotWall('<script src="/cdn-cgi/challenge-platform/h/b"></script>', 'tiny')).toBe(true);
   });
@@ -153,6 +194,27 @@ describe('looksLikeAbstractOnly', () => {
 
   it('the same page with its body container is not abstract only', () => {
     expect(looksLikeAbstractOnly(withBody, htmlToText(withBody))).toBe(false);
+  });
+
+  // A short ScienceDirect article (about 6,000 characters), well under the 20,000 cap, so only
+  // the div#body check tells it apart from an abstract-only page.
+  const shortSdArticle = (withBodyDiv: boolean) => `<html><head>
+    <meta name="citation_pii" content="S0000000000000001">
+    <meta name="citation_title" content="A synthetic short article">
+    <title>A synthetic short article - ScienceDirect</title></head>
+    <body><article><div id="abstracts" class="Abstracts"><h2>Abstract</h2>
+    <p>${'Invented abstract sentence for a short article. '.repeat(10)}</p></div>
+    ${withBodyDiv ? '<div id="body" class="Body">' : '<div class="Other">'}<section><h2>1. Introduction</h2>
+    <p>${'Invented body sentence for a short article. '.repeat(120)}</p></section></div></article></body></html>`;
+
+  it('a short ScienceDirect page with its body container is not abstract only', () => {
+    const html = shortSdArticle(true);
+    const text = htmlToText(html);
+    expect(text.length).toBeGreaterThan(4000);
+    expect(text.length).toBeLessThan(20_000);
+    expect(looksLikeAbstractOnly(html, text)).toBe(false);
+    const withoutBody = shortSdArticle(false);
+    expect(looksLikeAbstractOnly(withoutBody, htmlToText(withoutBody))).toBe(true);
   });
 
   const abstractPage = (abstract: string, extra = '') =>
