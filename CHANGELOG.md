@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-02
+
 ### Fixed
 
 - `get_full_text` returned `login_required` even with a valid EZproxy session.
