@@ -7,12 +7,18 @@ describe('neu-literature-review skill', () => {
   it('has the required frontmatter', () => {
     expect(skill).toMatch(/^---\nname: neu-literature-review\ndescription: Use when .+\n---\n/);
   });
-  it.each(['fullText', 'readUrl', 'textKind', 'version', 'blocked', 'login_required', 'neu-onesearch-login'])(
+  it.each(['fullText', 'readUrl', 'textKind', 'version', 'blocked', 'partial', 'login_required', 'neu-onesearch-login'])(
     'mentions %s',
     (term) => {
       expect(skill).toContain(term);
     },
   );
+  it('description names OneSearch and full-text retrieval', () => {
+    const d = skill.match(/^description: (.+)$/m)![1];
+    expect(d).toMatch(/OneSearch/);
+    expect(d).toMatch(/full-text retrieval/i);
+    expect(d).toMatch(/Northeastern/);
+  });
   it('stays under 120 lines', () => {
     expect(skill.split('\n').length).toBeLessThan(120);
   });

@@ -1,6 +1,6 @@
 ---
 name: neu-literature-review
-description: Use when helping a student or academic run a literature review through the Northeastern library, using the NEU OneSearch MCP tools to search, triage by abstract, and retrieve full text.
+description: Use when running a literature review through the Northeastern library's OneSearch with the NEU OneSearch MCP tools: searching, triaging abstracts, and full-text retrieval.
 ---
 
 # NEU literature review
@@ -24,14 +24,14 @@ Use this with the `neu-onesearch` MCP server (`search_onesearch`, `get_record`, 
 | Field | Meaning |
 | --- | --- |
 | `fullText` | `true` only when `status` is `ok`. Anything else means you did not get the paper. |
-| `readUrl` | Link the user can open in a browser. Present whenever `fullText` is false. |
+| `readUrl` | Link the user can open in a browser. Present when a link could be built; it can be `null` (for example when no target was given). |
 | `textKind` | `article`, `abstract` or `unknown`. |
 | `version` | `null` is the publisher's version. `published`, `accepted`, `submitted` or `unknown` marks an open-access copy. |
 | `text`, `message` | The text (if any) and a plain-language explanation. |
 
 ## Honesty rules
 
-- If `fullText` is false, tell the user plainly that the full text was not retrieved, give the reason from `message`, and show `readUrl` as a clickable link so they can open it.
+- If `fullText` is false, tell the user plainly that the full text was not retrieved, give the reason from `message`, and show `readUrl` as a clickable link so they can open it. If `readUrl` is `null`, say there is no link; never invent one.
 - Never present `partial` or abstract text as the paper. Label it "abstract only". Do not summarize methods, results or limitations from an abstract as if you had read the body.
 - If `textKind` is `abstract`, use the abstract to judge whether the paper is worth opening via `readUrl`, and say that is what you did.
 - If `version` is not `null`, say which version you read (for example "accepted manuscript, not the published version"). Quotes and page numbers may differ from the published paper.
@@ -42,11 +42,11 @@ Use this with the `neu-onesearch` MCP server (`search_onesearch`, `get_record`, 
 
 - `ok`: read `text`, note `version`, cite the DOI.
 - `partial`: you have an abstract or a fragment. Treat it as an abstract. Show `readUrl`.
-- `login_required`: no valid NEU session. Tell the user to run `neu-onesearch-login` and complete the NEU sign-in and Duo prompt themselves in the browser window it opens. Never ask for or type their credentials. Then retry once. The result may still be useful meanwhile if an open-access copy was found.
-- `blocked`: the publisher showed a bot check or challenge page. Do not try to get around it, solve a CAPTCHA, or retry with variations. Show `readUrl`. If your harness has a browser, you may open `readUrl` for the user; they handle any sign-in or check themselves. Otherwise just give the link.
+- `login_required`: no valid NEU session. Tell the user to run `neu-onesearch-login` and complete the NEU sign-in and Duo prompt themselves in the browser window it opens. Never ask for or type their credentials. Retry once only after the user says they have signed in. The result may still be useful meanwhile if an open-access copy was found.
+- `blocked`: the publisher showed a bot check, challenge page or other access wall. Do not try to get around it, solve a CAPTCHA, or retry with variations. Show `readUrl`. If your harness has a browser, you may open `readUrl` for the user; they handle any sign-in or check themselves. Otherwise just give the link.
 - `not_proxied`, `not_entitled`: the library proxy cannot reach it, or Northeastern has no access. Show `readUrl`. Mention if an open-access `version` was used instead.
 - `too_large`, `unsupported`: the file could not be read as text. Show `readUrl`.
-- `not_found`, `error`: report the `message`. Check the DOI or `recordId` once.
+- `not_found`, `error`: report the `message`. If you typed the identifier by hand, verify it once against the search result; otherwise just report it.
 
 ## Sign-in
 
