@@ -229,6 +229,22 @@ describe('fetchEzproxyResource', () => {
 });
 
 describe('isSignInHostname', () => {
+  it('matches Microsoft Entra sign-in hosts used after the 1Login move', () => {
+    for (const h of ['login.microsoftonline.com', 'LOGIN.MICROSOFTONLINE.COM', 'login.microsoft.com', 'login.windows.net']) {
+      expect(isSignInHostname(h)).toBe(true);
+    }
+  });
+  it('rejects look-alikes of the Microsoft sign-in hosts', () => {
+    for (const h of [
+      'login.microsoftonline.com.evil.example',
+      'evil-login.microsoftonline.com.example',
+      'evil-login.microsoftonline.com',
+      'login.microsoftonline.co',
+      'xlogin.microsoft.com',
+    ]) {
+      expect(isSignInHostname(h)).toBe(false);
+    }
+  });
   it('matches NEU IdP and Duo hosts but not publishers', () => {
     expect(isSignInHostname('neuidmsso.neu.edu')).toBe(true);
     expect(isSignInHostname('api-123.duosecurity.com')).toBe(true);

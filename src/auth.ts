@@ -21,6 +21,11 @@ const SSO_HOST_PATTERNS = [
   /(^|\.)shibboleth/i,
   /(^|\.)login\.ezproxy\.neu\.edu$/i,
   /(^|\.)duosecurity\.com$/i,
+  // NEU's 1Login program is moving apps from Shibboleth to Microsoft Entra ID, so a
+  // migrated app's sign-in bounce lands on these hosts instead of neuidmsso.
+  /(^|\.)login\.microsoftonline\.com$/i,
+  /(^|\.)login\.microsoft\.com$/i,
+  /(^|\.)login\.windows\.net$/i,
 ];
 
 /** True when a host is an NEU sign-in or IdP host (Shibboleth, Duo, EZproxy login). */

@@ -28,6 +28,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   proxy was treated as a sign-in bounce. Now only a redirect to an NEU sign-in
   host (`neuidmsso.neu.edu`, Shibboleth, Duo) means `login_required`. Session
   cookies are still never sent off the proxy.
+- Microsoft Entra sign-in hosts (`login.microsoftonline.com`,
+  `login.microsoft.com`, `login.windows.net`) now count as NEU sign-in. NEU's
+  1Login program is moving apps, including EZproxy and Primo VE, from
+  Shibboleth to Microsoft. Without this, an expired session bouncing to
+  Microsoft would be read as an unproxied publisher instead of `login_required`.
 
 ## [0.2.1] - 2026-11-02
 

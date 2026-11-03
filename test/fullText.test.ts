@@ -276,6 +276,28 @@ describe('getFullText', () => {
     expect(result.message).toMatch(/NU IT sign-in/);
   });
 
+  it('reports login_required when EZproxy redirects to Microsoft sign-in, without fetching it', async () => {
+    const entra =
+      'https://login.microsoftonline.com/a8eec281-aaa3-4dae-ac9b-9a398b9215e7/saml2?SAMLRequest=abc';
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url.includes('microsoftonline.com')) throw new Error('Microsoft sign-in host was contacted');
+      return new Response(null, { status: 302, headers: { location: entra } });
+    });
+    const lookupImpl = vi.fn(async () => {
+      throw new Error('Microsoft sign-in host was resolved for a direct fetch');
+    });
+    const result = await getFullText({ doi: '10.1000/xyz123' }, { fetchImpl, lookupImpl, sessionPath: ezproxySession() });
+    expect(result.status).toBe('login_required');
+    expect(result.message).toMatch(/NU IT sign-in/);
+    expect(result.sourceUrl).not.toContain('microsoftonline');
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(lookupImpl).not.toHaveBeenCalled();
+    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect(url.startsWith('https://link.ezproxy.neu.edu/')).toBe(true);
+    expect((init.headers as Record<string, string>).Cookie).toBe(`ezproxy=${COOKIE}`);
+    expect(JSON.stringify(result)).not.toContain(COOKIE);
+  });
+
   it('maps HTTP 403 to not entitled', async () => {
     const fetchImpl = vi.fn(async () => new Response('denied', { status: 403, headers: { 'content-type': 'text/plain' } }));
     const result = await getFullText({ doi: '10.1000/xyz123' }, { fetchImpl, sessionPath: ezproxySession() });
