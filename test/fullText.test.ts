@@ -377,6 +377,30 @@ describe('getFullText', () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it('a OneSearch record lookup that hangs ends as an error result, not a hang', async () => {
+    const realTimeout = AbortSignal.timeout.bind(AbortSignal);
+    const timeoutSpy = vi.spyOn(AbortSignal, 'timeout').mockImplementation(() => realTimeout(5));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        (_url: string, init?: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init?.signal?.addEventListener('abort', () => reject(init.signal!.reason));
+          })
+      )
+    );
+    try {
+      const fetchImpl = vi.fn();
+      const result = await getFullText({ recordId: 'cdi_hung_record' }, { fetchImpl, sessionPath: ezproxySession() });
+      expect(result.status).toBe('error');
+      expect(result.recordId).toBe('cdi_hung_record');
+      expect(result.message).toMatch(/OneSearch did not answer within 20 seconds/);
+      expect(fetchImpl).not.toHaveBeenCalled();
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
   it('resolves a cdi_ recordId to its DOI', async () => {
     (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
       ok: true,
@@ -644,6 +668,49 @@ describe('overall deadline', () => {
     expect(result.readUrl).not.toBeNull();
     expect(result.message).toMatch(/Timed out after 50ms/);
   });
+
+  it('a body stream that errors mid-read returns an error result with readUrl, not a throw', async () => {
+    const fetchImpl = vi.fn(async () => {
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('<html><body><p>first chunk'));
+          controller.error(new Error('socket hang up'));
+        },
+      });
+      return new Response(body, { status: 200, headers: { 'content-type': 'text/html' } });
+    });
+    const result = await getFullText(
+      { doi: '10.1371/journal.pone.0212767' },
+      { fetchImpl, sessionPath: ezproxySession(), openAccess: false }
+    );
+    expect(result.status).toBe('error');
+    expect(result.fullText).toBe(false);
+    expect(result.text).toBeNull();
+    expect(result.readUrl).toMatch(/^https:\/\/link\.ezproxy\.neu\.edu\/login\?qurl=/);
+    expect(result.message).toMatch(/socket hang up/);
+    expect(result.message.endsWith(` Open it in a browser: ${result.readUrl}`)).toBe(true);
+    expect(JSON.stringify(result)).not.toContain(COOKIE);
+  });
+
+  it('a throw from inside the primary fetch still returns readUrl', async () => {
+    const fetchImpl = vi.fn(async () => {
+      // A Response whose headers getter throws reaches past requestHop's and finalResponse's catches.
+      const response = new Response('x', { status: 200, headers: { 'content-type': 'text/html' } });
+      Object.defineProperty(response, 'headers', {
+        get() {
+          throw new Error('headers unavailable');
+        },
+      });
+      return response;
+    });
+    const result = await getFullText(
+      { doi: '10.1371/journal.pone.0212767' },
+      { fetchImpl, sessionPath: ezproxySession(), openAccess: false }
+    );
+    expect(result.status).toBe('error');
+    expect(result.readUrl).toMatch(/^https:\/\/link\.ezproxy\.neu\.edu\/login\?qurl=/);
+    expect(result.message).toMatch(/headers unavailable/);
+  });
 });
 
 describe('open-access fallback through OpenAlex', () => {
@@ -896,6 +963,56 @@ describe('open-access fallback through OpenAlex', () => {
     expect(r.message).toContain(SKIPPED);
     expect(r.message.endsWith(` Open it in a browser: ${r.readUrl}`)).toBe(true);
     expect(openAlexFetch).not.toHaveBeenCalled();
+  });
+
+  it('when the deadline hits during the open-access search, the blocked result comes back', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const openAlexFetch = vi.fn((_url: string, _init?: RequestInit) => new Promise<Response>(() => {}));
+      const pending = getFullText(
+        { doi: SPRINGER_DOI },
+        {
+          fetchImpl: springerBlockedFetch(),
+          openAlexFetch,
+          lookupImpl: publicLookup,
+          sessionPath: ezproxySession(),
+          deadlineMs: 10_500,
+        }
+      );
+      await vi.waitFor(() => expect(openAlexFetch).toHaveBeenCalled());
+      await vi.advanceTimersByTimeAsync(10_500);
+      const r = await pending;
+      expect(r.status).toBe('blocked');
+      expect(r.readUrl).toMatch(/^https:\/\/link\.ezproxy\.neu\.edu\/login\?qurl=/);
+      expect(r.message).toContain(SKIPPED);
+      expect(r.message.endsWith(` Open it in a browser: ${r.readUrl}`)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a throw inside the open-access search returns the blocked result with a skipped note', async () => {
+    let explode = false;
+    const clock = () => {
+      if (explode) throw new Error('clock failed');
+      return 0;
+    };
+    const openAlexFetch = vi.fn(async (_url: string, _init?: RequestInit) => {
+      explode = true; // the next deadline check, inside tryOpenAccess, throws
+      return new Response(JSON.stringify({ locations: springerLocations }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    const r = await getFullText(
+      { doi: SPRINGER_DOI },
+      { fetchImpl: springerBlockedFetch(), openAlexFetch, lookupImpl: publicLookup, sessionPath: ezproxySession(), clock }
+    );
+    expect(openAlexFetch).toHaveBeenCalledTimes(1);
+    expect(r.status).toBe('blocked');
+    expect(r.readUrl).toMatch(/^https:\/\/link\.ezproxy\.neu\.edu\/login\?qurl=/);
+    expect(r.message).toContain(SKIPPED);
+    expect(r.message.endsWith(` Open it in a browser: ${r.readUrl}`)).toBe(true);
   });
 
   it('does not search for a copy when the target has no DOI', async () => {

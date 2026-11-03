@@ -13,9 +13,26 @@ export const CAMPUS_SCOPES: Record<'all' | 'boston' | 'oakland' | 'online', { ta
   online: { tab: 'Online', scope: 'CDI_and_EResources' },
 };
 
+/** A hung Primo call must not stall get_full_text: its record lookup runs before the overall cap. */
+const PRIMO_TIMEOUT_MS = 20_000;
+const PRIMO_TIMEOUT_MESSAGE = `OneSearch did not answer within ${PRIMO_TIMEOUT_MS / 1000} seconds.`;
+
+function isTimeout(err: unknown): boolean {
+  const name = err instanceof Error ? err.name : '';
+  return name === 'TimeoutError' || name === 'AbortError';
+}
+
 async function fetchPrimoJson<T>(url: string, opts: { nullOn404?: boolean } = {}): Promise<T | null> {
   const cookie = loadSession();
-  const response = await fetch(url, cookie ? { headers: { Cookie: cookie } } : undefined);
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      ...(cookie ? { headers: { Cookie: cookie } } : {}),
+      signal: AbortSignal.timeout(PRIMO_TIMEOUT_MS),
+    });
+  } catch (err) {
+    throw isTimeout(err) ? new Error(PRIMO_TIMEOUT_MESSAGE) : err;
+  }
   // When we attached a session and the server bounced us to sign in (or
   // rejected the cookie), surface that as login_required rather than a generic
   // failure or a silently empty result.
@@ -30,8 +47,9 @@ async function fetchPrimoJson<T>(url: string, opts: { nullOn404?: boolean } = {}
   }
   try {
     return (await response.json()) as T;
-  } catch {
-    throw new Error('OneSearch returned an unparseable response');
+  } catch (err) {
+    // The same signal also bounds the body download.
+    throw new Error(isTimeout(err) ? PRIMO_TIMEOUT_MESSAGE : 'OneSearch returned an unparseable response');
   }
 }
 

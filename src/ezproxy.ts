@@ -428,7 +428,18 @@ async function finalResponse(
   redirects: number
 ): Promise<ProxyFetchResult> {
   const contentType = response.headers.get('content-type') ?? '';
-  const body = await readLimitedBody(response, maxBytes);
+  let body: { bytes: Uint8Array; tooLarge: boolean };
+  try {
+    body = await readLimitedBody(response, maxBytes);
+  } catch (err) {
+    // fetch() resolves once headers arrive; the timeout signal or a reset can still end the body.
+    const name = err instanceof Error ? err.name : '';
+    const message =
+      name === 'AbortError' || name === 'TimeoutError'
+        ? 'Timed out while downloading the response body.'
+        : `The connection failed while downloading the response body (${err instanceof Error ? err.message : 'unknown error'}).`;
+    return { kind: 'error', finalUrl: url.href, message };
+  }
   if (body.tooLarge) {
     return {
       kind: 'too_large',

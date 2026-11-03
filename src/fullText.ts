@@ -579,8 +579,19 @@ export async function getFullText(input: GetFullTextInput, options: GetFullTextO
       deadlineMs
     );
   });
+  // Any throw on the primary route still yields a result with readUrl (decision 8).
+  const primaryRoute = fetchFullText(target, capped).catch((err: unknown) =>
+    emptyResult({
+      status: 'error',
+      doi: target.doi,
+      recordId: target.recordId,
+      title: target.title,
+      sourceUrl: target.startUrl,
+      message: `The full-text request failed: ${err instanceof Error ? err.message : 'unknown error'}.`,
+    })
+  );
   try {
-    const primary = await Promise.race([fetchFullText(target, capped), timedOut]);
+    const primary = await Promise.race([primaryRoute, timedOut]);
     const result = await withOpenAccess(primary, target, capped, deadline);
     return finalizeResult(result, target.readUrl);
   } finally {

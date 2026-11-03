@@ -245,6 +245,31 @@ describe('fetchPrimo', () => {
   });
 });
 
+describe('fetchPrimo timeout', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('caps each OneSearch request at 20 s and reports a hung request as a clear error', async () => {
+    const realTimeout = AbortSignal.timeout.bind(AbortSignal);
+    // Keep the 20 s value under test but let the abort fire right away.
+    const timeoutSpy = vi.spyOn(AbortSignal, 'timeout').mockImplementation(() => realTimeout(5));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        (_url: string, init?: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init?.signal?.addEventListener('abort', () => reject(init.signal!.reason));
+          })
+      )
+    );
+    await expect(getRecord('cdi_hung_record')).rejects.toThrow('OneSearch did not answer within 20 seconds.');
+    await expect(searchOneSearch({ query: 'hung' })).rejects.toThrow('OneSearch did not answer within 20 seconds.');
+    expect(timeoutSpy).toHaveBeenCalledWith(20_000);
+  });
+});
+
 describe('fetchPrimo cookie attachment', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn());
