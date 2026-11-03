@@ -70,7 +70,7 @@ function copiesFromWork(work: unknown): OaCopy[] | null {
   return copies.filter((copy) => (seen.has(copy.pdfUrl) ? false : (seen.add(copy.pdfUrl), true)));
 }
 
-/** The copies, or null when OpenAlex could not be asked or did not answer with a work. */
+/** The copies ([] when OpenAlex has no such work), or null when OpenAlex could not be asked or answered badly. */
 async function lookupCopies(doi: string, fetchImpl: FetchLike, timeoutMs: number): Promise<OaCopy[] | null> {
   try {
     // Keyless and without mailto (the owner has not opted in). No cookie is ever attached.
@@ -80,7 +80,13 @@ async function lookupCopies(doi: string, fetchImpl: FetchLike, timeoutMs: number
       headers: { Accept: 'application/json' },
       signal: AbortSignal.timeout(Math.max(1, timeoutMs)),
     });
-    if (!response || !response.ok) return null;
+    if (!response) return null;
+    // A 404 is OpenAlex's answer that it has no work for this DOI: a search with no copies.
+    if (response.status === 404) {
+      await response.body?.cancel().catch(() => undefined);
+      return [];
+    }
+    if (!response.ok) return null;
     const body = await response.text();
     if (body.length > MAX_OPENALEX_CHARS) return null;
     return copiesFromWork(JSON.parse(body));

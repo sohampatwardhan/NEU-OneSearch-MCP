@@ -265,7 +265,7 @@ implemented.
   | `not_entitled` | A publisher access wall or HTTP 401/403 — NEU may not subscribe, or the publisher blocked the download. |
   | `not_found` | The record or proxied URL returned nothing (404). |
   | `too_large` | The download exceeded the size cap and was not parsed. |
-  | `blocked` | The publisher refused automated access: a bot check, challenge or CAPTCHA page, an EZproxy "wait a moment ... click here" interstitial, or a 403 from a direct cookie-less fetch. Open `readUrl` in a browser and handle any check there. This server never solves or bypasses checks. |
+  | `blocked` | The publisher or the library proxy refused automated access: a bot check, challenge or CAPTCHA page, an EZproxy "wait a moment ... click here" interstitial, or a 403 from a direct cookie-less fetch. Open `readUrl` in a browser and handle any check there. This server never solves or bypasses checks. |
   | `unsupported` | No DOI/full-text link, or a non-text or image-only response. This server does not OCR. Bot walls are reported as `blocked`, not `unsupported`. |
   | `error` | Bad input (no/invalid `doi` or unsupported `recordId` prefix) or a transport failure. |
 

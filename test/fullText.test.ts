@@ -43,11 +43,12 @@ afterEach(() => {
 });
 
 describe('getFullText', () => {
-  it('does not fetch when no session file exists', async () => {
+  it('makes no proxy request when no session file exists (OpenAlex may still be asked)', async () => {
     const fetchImpl = vi.fn();
+    const openAlexFetch = vi.fn(async (_url: string, _init?: RequestInit) => new Response('{"error":"Not Found"}', { status: 404 }));
     const result = await getFullText(
       { doi: '10.1371/journal.pone.0212767' },
-      { fetchImpl, sessionPath: '/nonexistent/neu-session.json' }
+      { fetchImpl, openAlexFetch, sessionPath: '/nonexistent/neu-session.json' }
     );
     expect(result.status).toBe('login_required');
     expect(result.text).toBeNull();
@@ -55,6 +56,9 @@ describe('getFullText', () => {
     expect(result.doi).toBe('10.1371/journal.pone.0212767');
     expect(JSON.stringify(result)).not.toContain(COOKIE);
     expect(fetchImpl).not.toHaveBeenCalled();
+    expect(openAlexFetch).toHaveBeenCalledTimes(1);
+    expect(String(openAlexFetch.mock.calls[0][0])).toMatch(/^https:\/\/api\.openalex\.org\//);
+    expect((openAlexFetch.mock.calls[0][1]?.headers as Record<string, string>).Cookie).toBeUndefined();
   });
 
   it('tells the caller to redo login when the file only has OneSearch cookies', async () => {
@@ -517,6 +521,10 @@ describe('blocked status', () => {
     new Response(body, { status, headers: { 'content-type': 'text/html; charset=utf-8' } });
   const expectBlockedMessage = (message: string) => {
     expect(message).toMatch(/blocked automated access/);
+    // Accurate for a bare 403 and for EZproxy's own interstitial, not only a publisher bot check.
+    expect(message).toMatch(/publisher or the library proxy/);
+    expect(message).not.toMatch(/with a bot check/);
+    expect(message).toMatch(/does not mean NEU lacks access/);
     expect(message).toMatch(/browser/);
     expect(message).toMatch(/CAPTCHA/);
   };
@@ -931,6 +939,18 @@ describe('open-access fallback through OpenAlex', () => {
       expect(r.message).not.toContain('No open-access copy was found.');
       expect(r.message.endsWith(` Open it in a browser: ${r.readUrl}`)).toBe(true);
     }
+  });
+
+  it('a DOI unknown to OpenAlex (404) is reported as no copy found, not as skipped', async () => {
+    const openAlexFetch = vi.fn(async (_url: string, _init?: RequestInit) => new Response('{"error":"Not Found"}', { status: 404 }));
+    const r = await getFullText(
+      { doi: SPRINGER_DOI },
+      { fetchImpl: springerBlockedFetch(), openAlexFetch, lookupImpl: publicLookup, sessionPath: ezproxySession() }
+    );
+    expect(r.status).toBe('blocked');
+    expect(r.message).toContain('No open-access copy was found.');
+    expect(r.message).not.toContain(SKIPPED);
+    expect(r.message.endsWith(` Open it in a browser: ${r.readUrl}`)).toBe(true);
   });
 
   it('an abstract-only result upgrades to ok when a copy exists', async () => {

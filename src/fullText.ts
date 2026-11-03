@@ -260,8 +260,10 @@ async function textFromPdf(
   });
 }
 
+// Covers a challenge page, EZproxy's own interstitial and a bare 403 to a script, so it
+// names no single cause. On the direct-403 path it must not suggest a paywall.
 const BLOCKED_MESSAGE =
-  "The publisher blocked automated access with a bot check, which does not mean NEU lacks access to this article. An agent with a browser can open the link and the user can finish the check there. This server does not solve CAPTCHAs.";
+  'The publisher or the library proxy blocked automated access to this page. That does not mean NEU lacks access to this article. An agent with a browser can open the link, and the user can finish any check or sign-in there. This server does not solve CAPTCHAs.';
 
 function blockedResult(
   base: ResolvedTarget,

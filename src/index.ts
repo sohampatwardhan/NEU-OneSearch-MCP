@@ -102,7 +102,7 @@ export function createServer(): McpServer {
         '**If `fullText` is false, tell the user plainly that the full text was not retrieved and why, and show `readUrl` as a clickable link so they can open it in their browser.** ' +
         '**If `textKind` is `abstract`, use the abstract to judge whether the paper is worth opening via `readUrl`.** ' +
         'Result fields: `status`; `fullText` (true only for `ok`); `readUrl` (a link the user can open in a browser, or null); `textKind` (`article`, `abstract` or `unknown`); `version`: `null` means the publisher\'s version, otherwise `published`, `accepted`, `submitted` or `unknown` for an open-access copy. ' +
-        'Result statuses: ok, partial, login_required, not_proxied, not_entitled, not_found, too_large, unsupported, blocked, error. `blocked` means the publisher refused automated access (bot check or challenge); an agent with a browser can open `readUrl`, and the user handles any check there. This server never solves or bypasses checks.',
+        'Result statuses: ok, partial, login_required, not_proxied, not_entitled, not_found, too_large, unsupported, blocked, error. `blocked` means the publisher or the library proxy refused automated access (a bot check, challenge or interstitial page, or a 403 to a script); an agent with a browser can open `readUrl`, and the user handles any check there. This server never solves or bypasses checks.',
       inputSchema: {
         doi: z.string().optional().describe('Article DOI, or a https://doi.org/ URL (preferred input)'),
         recordId: z

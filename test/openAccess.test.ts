@@ -314,4 +314,16 @@ describe('tryOpenAccess', () => {
     });
     expect(out).toMatchObject({ copy: null, tried: 0, firstUnextractable: null, skipped: false });
   });
+
+  it('is not skipped when OpenAlex does not know the DOI (404)', async () => {
+    const out = await tryOpenAccess(DOI, {
+      skipHost: null,
+      deadline: deadlineWith(60_000),
+      fetchImpl: vi.fn(),
+      openAlexFetch: vi.fn(async () => new Response('{"error":"Not Found"}', { status: 404 })),
+      lookupImpl: publicLookup,
+      ...LIMITS,
+    });
+    expect(out).toMatchObject({ copy: null, tried: 0, firstUnextractable: null, skipped: false });
+  });
 });
