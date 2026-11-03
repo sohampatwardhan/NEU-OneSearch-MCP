@@ -199,7 +199,19 @@ here conflicts with an earlier section, this section wins.
    publishers. Reason: these fetches carry no session, so a 403 is a refusal of automated
    access, not an entitlement answer. Paywalls on such hosts show up as a 200 paywall page,
    which `looksLikePaywall` already handles.
-2. **Abstract-only text.** *Owner's decision pending, filled in below.*
+2. **Abstract-only text (owner's decision).** When only the abstract is reachable, return
+   it. Use status `partial` with a new field `textKind: "abstract"` (`"article"` when the
+   text is the body), plus `readUrl`, and a message that starts with "Abstract only".
+   - **Every `partial` result** gets a `textKind`, including the existing generic short-HTML
+     `partial`. It is `"abstract"` when the detector recognizes an abstract, and
+     `"unknown"` otherwise. `ok` always means `"article"`.
+   - **Open-access fallback:** runs for abstract-only results too. If it finds the full
+     paper, the result becomes `ok` with `version` set.
+   - **Today's bug (Case 2):** a proxied PDF hop that silently falls back to an abstract
+     page of 2,500 characters or more and is returned as `ok`. It must now go through the
+     abstract check and come back as `partial`/`abstract`.
+   - **Detector:** how to recognize an abstract-only page is left to the builder (meta
+     tags, a missing body section, text length). Check it on the live Elsevier page first.
 3. **Fixtures (author's call).** No page recordings exist yet. The plan includes a live
    capture step, with a session, for the challenge pages (Springer "Client Challenge",
    IEEE "verify that you're not a robot", MDPI's 403 body). Those are short publisher
