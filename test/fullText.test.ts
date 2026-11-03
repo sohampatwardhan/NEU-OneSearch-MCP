@@ -427,4 +427,57 @@ describe('getFullText', () => {
     expect(result.message).not.toMatch(/get_record/);
     expect(fetchImpl).not.toHaveBeenCalled();
   });
+  describe('readUrl and fullText on every result', () => {
+    const DOI = '10.1000/xyz123';
+    const html = (body: string) => new Response(body, { status: 200, headers: { 'content-type': 'text/html' } });
+
+    it('every no-text status carries readUrl except no-target errors', async () => {
+      const cases: Array<[string, () => Promise<Awaited<ReturnType<typeof getFullText>>>]> = [
+        ['no session', () => getFullText({ doi: DOI }, { fetchImpl: vi.fn(), sessionPath: '/nonexistent/s.json' })],
+        ['403', () => getFullText({ doi: DOI }, { fetchImpl: vi.fn(async () => new Response('no', { status: 403, headers: { 'content-type': 'text/plain' } })), sessionPath: ezproxySession() })],
+        ['404', () => getFullText({ doi: DOI }, { fetchImpl: vi.fn(async () => new Response('no', { status: 404, headers: { 'content-type': 'text/plain' } })), sessionPath: ezproxySession() })],
+        ['too large', () => getFullText({ doi: DOI }, { fetchImpl: vi.fn(async () => new Response('x'.repeat(100), { status: 200, headers: { 'content-type': 'text/html' } })), sessionPath: ezproxySession(), maxDownloadBytes: 10 })],
+        ['unsupported type', () => getFullText({ doi: DOI }, { fetchImpl: vi.fn(async () => new Response('zip', { status: 200, headers: { 'content-type': 'application/zip' } })), sessionPath: ezproxySession() })],
+        ['menu', () => getFullText({ doi: DOI }, { fetchImpl: vi.fn(async (url: string) => String(url).startsWith('https://login.ezproxy.neu.edu/menu') ? html('<html><head><title>Database Menu</title></head><body>Database Menu</body></html>') : new Response(null, { status: 302, headers: { location: 'https://login.ezproxy.neu.edu/menu' } })), sessionPath: ezproxySession() })],
+      ];
+      for (const [name, run] of cases) {
+        const r = await run();
+        expect(r.fullText, name).toBe(false);
+        expect(r.readUrl, name).not.toBeNull();
+        expect(r.message.startsWith('Full text was not retrieved: '), name).toBe(true);
+        expect(r.message, name).toContain(`Open it in a browser: ${r.readUrl}`);
+      }
+    });
+
+    it('off-proxy refusal uses the publisher URL as readUrl', async () => {
+      const PUB = 'https://dx.plos.org/10.1371/journal.pone.0212767';
+      const fetchImpl = vi.fn(async (url: string) => {
+        if (url.startsWith('https://link.ezproxy.neu.edu/')) {
+          return new Response(null, { status: 302, headers: { location: 'https://doi-org.ezproxy.neu.edu/10.1371/journal.pone.0212767' } });
+        }
+        if (url.startsWith('https://doi-org.ezproxy.neu.edu/')) return new Response(null, { status: 302, headers: { location: PUB } });
+        return new Response('denied', { status: 403, headers: { 'content-type': 'text/plain' } });
+      });
+      const r = await getFullText(
+        { doi: '10.1371/journal.pone.0212767' },
+        { fetchImpl, lookupImpl: async () => ['151.101.1.1'], sessionPath: ezproxySession() }
+      );
+      expect(r.status).toBe('not_proxied');
+      expect(r.readUrl).toBe(PUB);
+      expect(r.fullText).toBe(false);
+    });
+
+    it('marks a successful extraction as full text with no readUrl', async () => {
+      const r = await getFullText({ doi: DOI }, { fetchImpl: vi.fn(async () => pdfResponse()), sessionPath: ezproxySession() });
+      expect(r).toMatchObject({ status: 'ok', fullText: true, textKind: 'article', readUrl: null });
+      expect(r.message.startsWith('Full text was not retrieved')).toBe(false);
+    });
+
+    it('bad DOI and no-input paths have no readUrl', async () => {
+      const bad = await getFullText({ doi: 'not a doi' }, { fetchImpl: vi.fn() });
+      expect(bad).toMatchObject({ status: 'error', fullText: false, readUrl: null });
+      const none = await getFullText({}, { fetchImpl: vi.fn() });
+      expect(none).toMatchObject({ status: 'error', fullText: false, readUrl: null });
+    });
+  });
 });

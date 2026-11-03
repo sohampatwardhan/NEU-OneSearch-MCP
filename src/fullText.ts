@@ -27,38 +27,10 @@ import {
 import { classifyEzproxySession, loadStoredCookies, type EzproxySessionState } from './session.js';
 import { sessionCachePath } from './cache.js';
 import type { MappedResult } from './types.js';
+import { emptyResult, finalizeResult, type FullTextResult, type FullTextStatus } from './fullTextResult.js';
 
-export type FullTextStatus =
-  | 'ok'
-  | 'partial'
-  | 'login_required'
-  | 'not_proxied'
-  | 'not_entitled'
-  | 'not_found'
-  | 'too_large'
-  | 'unsupported'
-  | 'error';
-
-export interface FullTextResult {
-  status: FullTextStatus;
-  doi: string | null;
-  recordId: string | null;
-  title: string | null;
-  sourceUrl: string | null;
-  contentType: string | null;
-  via: 'pdf' | 'html' | null;
-  pageCount: number | null;
-  pagesExtracted: number | null;
-  truncated: boolean;
-  charCount: number;
-  text: string | null;
-  message: string;
-  limits: {
-    maxDownloadBytes: number;
-    maxTextChars: number;
-    maxPdfPages: number;
-  };
-}
+export { emptyResult, finalizeResult, LIMITS_VIEW } from './fullTextResult.js';
+export type { FullTextResult, FullTextStatus, TextKind, CopyVersion } from './fullTextResult.js';
 
 export interface GetFullTextInput {
   doi?: string;
@@ -82,6 +54,8 @@ interface ResolvedTarget {
   recordId: string | null;
   title: string | null;
   startUrl: string;
+  /** Where a person can open the article in a browser (the proxied start link). */
+  readUrl: string | null;
 }
 
 /** How the article bytes were reached: through EZproxy with the session, or directly without it. */
@@ -89,30 +63,6 @@ type FetchRoute = 'proxy' | 'direct';
 
 const DIRECT_NOTE =
   "This publisher is not on NEU's EZproxy (it is likely open access), so the article was fetched directly from the publisher without the library session.";
-
-const LIMITS_VIEW = {
-  maxDownloadBytes: FULL_TEXT_LIMITS.maxDownloadBytes,
-  maxTextChars: FULL_TEXT_LIMITS.maxTextChars,
-  maxPdfPages: FULL_TEXT_LIMITS.maxPdfPages,
-};
-
-function emptyResult(overrides: Partial<FullTextResult> & Pick<FullTextResult, 'status' | 'message'>): FullTextResult {
-  return {
-    doi: null,
-    recordId: null,
-    title: null,
-    sourceUrl: null,
-    contentType: null,
-    via: null,
-    pageCount: null,
-    pagesExtracted: null,
-    truncated: false,
-    charCount: 0,
-    text: null,
-    limits: LIMITS_VIEW,
-    ...overrides,
-  };
-}
 
 function sessionLocationPhrase(): string {
   return process.env.NEU_ONESEARCH_CACHE_DIR?.trim()
@@ -155,14 +105,14 @@ function targetFromMapped(mapped: MappedResult, recordId: string): ResolvedTarge
   if (mapped.doi) {
     const startUrl = buildEzproxyDoiUrl(mapped.doi);
     if (startUrl) {
-      return { doi: mapped.doi, recordId, title: mapped.title, startUrl };
+      return { doi: mapped.doi, recordId, title: mapped.title, startUrl, readUrl: startUrl };
     }
   }
   const candidate = mapped.fullTextUrl ?? mapped.ezproxyDoiUrl;
   if (candidate) {
     const startUrl = toEzproxyFetchUrl(candidate);
     if (startUrl) {
-      return { doi: mapped.doi, recordId, title: mapped.title, startUrl };
+      return { doi: mapped.doi, recordId, title: mapped.title, startUrl, readUrl: startUrl };
     }
   }
   return emptyResult({
@@ -195,7 +145,7 @@ async function resolveTarget(input: GetFullTextInput): Promise<ResolvedTarget | 
         message: 'That doi is not a usable DOI. Pass the DOI itself or a https://doi.org/ URL.',
       });
     }
-    return { doi: normalized, recordId: recordId ?? null, title: null, startUrl };
+    return { doi: normalized, recordId: recordId ?? null, title: null, startUrl, readUrl: startUrl };
   }
 
   try {
@@ -381,7 +331,7 @@ function notProxied(base: ResolvedTarget, publisherUrl: string, reason: string):
  * EZproxy passed the target through unproxied, so fetch it straight from the publisher
  * with no session cookie. Any failure falls back to `not_proxied` with the publisher URL.
  */
-async function fullTextDirect(
+async function fullTextDirectInner(
   offProxy: Extract<ProxyFetchResult, { kind: 'off_proxy' }>,
   target: ResolvedTarget,
   options: GetFullTextOptions
@@ -436,6 +386,16 @@ async function fullTextDirect(
     options.maxTextChars ?? FULL_TEXT_LIMITS.maxTextChars,
     'direct'
   );
+}
+
+async function fullTextDirect(
+  offProxy: Extract<ProxyFetchResult, { kind: 'off_proxy' }>,
+  target: ResolvedTarget,
+  options: GetFullTextOptions
+): Promise<FullTextResult> {
+  const result = await fullTextDirectInner(offProxy, target, options);
+  // Off the proxy, the publisher URL is the one a person should open.
+  return result.status === 'ok' || result.readUrl ? result : { ...result, readUrl: offProxy.offProxyUrl };
 }
 
 function failureFromProxy(
@@ -521,7 +481,11 @@ function httpFailure(response: Extract<ProxyFetchResult, { kind: 'response' }>, 
 
 export async function getFullText(input: GetFullTextInput, options: GetFullTextOptions = {}): Promise<FullTextResult> {
   const target = await resolveTarget(input);
-  if ('status' in target) return target;
+  if ('status' in target) return finalizeResult(target, null);
+  return finalizeResult(await fetchFullText(target, options), target.readUrl);
+}
+
+async function fetchFullText(target: ResolvedTarget, options: GetFullTextOptions): Promise<FullTextResult> {
 
   const sessionPath = options.sessionPath ?? sessionCachePath();
   const cookies = loadStoredCookies(sessionPath);
