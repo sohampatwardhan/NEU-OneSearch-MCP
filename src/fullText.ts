@@ -9,6 +9,7 @@ import {
   isEzproxyLoginPage,
   isEzproxyMenuPage,
   normalizeDoi,
+  publisherHostFromEzproxy,
   toEzproxyFetchUrl,
   type FetchLike,
   type LookupLike,
@@ -616,6 +617,19 @@ function hostname(url: string | null): string | null {
 }
 
 /**
+ * The publisher host that just refused us, whose OpenAlex copies are not worth a try:
+ * fetching them directly would hit the same wall. Off the proxy (the direct route sets
+ * `readUrl`) it is the publisher URL's host; `sourceUrl` may be a CDN or challenge host
+ * after redirects. Through the proxy it is the publisher behind the rewritten EZproxy
+ * host of `sourceUrl` (null when the result never left `link.ezproxy.neu.edu`).
+ */
+function blockingHost(primary: FullTextResult): string | null {
+  if (primary.readUrl) return hostname(primary.readUrl);
+  const proxied = hostname(primary.sourceUrl);
+  return proxied ? publisherHostFromEzproxy(proxied) : null;
+}
+
+/**
  * Run the open-access fallback after a result without usable text, when the target has a
  * DOI. It never makes the call fail: on any problem the primary result comes back with a
  * note. With less than 10 s left (or if the deadline hits while it runs) the primary
@@ -631,9 +645,7 @@ async function withOpenAccess(
   if (options.openAccess === false || !target.doi || !wantsOpenAccess(primary)) return primary;
   if (deadline.remainingMs() < MIN_OPEN_ACCESS_MS) return withNote(primary, OA_SKIPPED_NOTE);
 
-  // Off the proxy (readUrl set by the direct route), skip the publisher host that refused us.
-  // Proxied results have no such host: EZproxy's own hosts never appear in OpenAlex.
-  const skipHost = primary.readUrl ? hostname(primary.sourceUrl ?? primary.readUrl) : null;
+  const skipHost = blockingHost(primary);
   let timer: ReturnType<typeof setTimeout> | undefined;
   const outOfTime = new Promise<null>((resolve) => {
     timer = setTimeout(() => resolve(null), deadline.remainingMs());

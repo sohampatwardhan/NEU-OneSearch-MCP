@@ -181,6 +181,22 @@ export function toEzproxyFetchUrl(target: string): string | null {
   return `${EZPROXY_LOGIN_ORIGIN}/login?qurl=${encodeURIComponent(url.href)}`;
 }
 
+const EZPROXY_HOST_SUFFIX = '.ezproxy.neu.edu';
+
+/**
+ * The publisher host behind an EZproxy-rewritten host, or null for EZproxy's own hosts
+ * and anything off the proxy. EZproxy writes the publisher's dots as hyphens and its
+ * hyphens as doubled hyphens: `link-springer-com.ezproxy.neu.edu` is `link.springer.com`.
+ */
+export function publisherHostFromEzproxy(host: string): string | null {
+  const normalized = host.trim().toLowerCase().replace(/\.$/, '');
+  if (!normalized.endsWith(EZPROXY_HOST_SUFFIX)) return null;
+  const label = normalized.slice(0, -EZPROXY_HOST_SUFFIX.length);
+  if (!label || label.includes('.') || label === 'link' || label === 'login') return null;
+  const publisher = label.split('--').map((part) => part.replace(/-/g, '.')).join('-');
+  return publisher.includes('.') ? publisher : null;
+}
+
 /** Route a DOI through NEU's EZproxy login prefix. */
 export function buildEzproxyDoiUrl(doi: string): string | null {
   const doiUrl = doiToHttpsUrl(doi);

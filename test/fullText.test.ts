@@ -720,6 +720,89 @@ describe('open-access fallback through OpenAlex', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
+  it('a proxied blocked result skips the same publisher host when trying copies', async () => {
+    const PROXIED = `https://link-springer-com.ezproxy.neu.edu/article/${SPRINGER_DOI}`;
+    const SPRINGER_PDF = `https://link.springer.com/content/pdf/${SPRINGER_DOI}.pdf`;
+    const fetchImpl = vi.fn(async (url: string, _init?: RequestInit) => {
+      if (url.startsWith('https://link.ezproxy.neu.edu/')) return new Response(null, { status: 302, headers: { location: PROXIED } });
+      if (url === PROXIED) return htmlResponse(fixture('challenge-springer.html'));
+      if (url === WHITE_ROSE_PDF) return pdfResponse();
+      if (new URL(url).hostname === 'link.springer.com') return htmlResponse(fixture('challenge-springer.html'));
+      throw new Error(`unexpected request ${url}`);
+    });
+    const openAlexFetch = openAlexFetchFor([
+      { pdf_url: SPRINGER_PDF, version: 'publishedVersion', source: { display_name: 'Artificial Intelligence Review' } },
+      { pdf_url: WHITE_ROSE_PDF, version: 'submittedVersion', source: { display_name: WHITE_ROSE } },
+    ]);
+    const r = await getFullText(
+      { doi: SPRINGER_DOI },
+      { fetchImpl, openAlexFetch, lookupImpl: publicLookup, sessionPath: ezproxySession() }
+    );
+    const hosts = fetchImpl.mock.calls.map((call) => new URL(String(call[0])).hostname);
+    expect(hosts).not.toContain('link.springer.com');
+    expect(r.status).toBe('ok');
+    expect(r.sourceUrl).toBe(WHITE_ROSE_PDF);
+    expect(r.version).toBe('submitted');
+    expect(r.message).not.toContain(SPRINGER_PDF);
+    expect(r.message).not.toMatch(/copy exists at/);
+  });
+
+  it('when every copy is on the blocking proxied publisher, no copy is claimed to exist', async () => {
+    const PROXIED = `https://link-springer-com.ezproxy.neu.edu/article/${SPRINGER_DOI}`;
+    const SPRINGER_PDF = `https://link.springer.com/content/pdf/${SPRINGER_DOI}.pdf`;
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url.startsWith('https://link.ezproxy.neu.edu/')) return new Response(null, { status: 302, headers: { location: PROXIED } });
+      if (url === PROXIED) return htmlResponse(fixture('challenge-springer.html'));
+      return htmlResponse(fixture('challenge-springer.html'));
+    });
+    const r = await getFullText(
+      { doi: SPRINGER_DOI },
+      {
+        fetchImpl,
+        openAlexFetch: openAlexFetchFor([{ pdf_url: SPRINGER_PDF, version: 'publishedVersion' }]),
+        lookupImpl: publicLookup,
+        sessionPath: ezproxySession(),
+      }
+    );
+    expect(fetchImpl.mock.calls.map((call) => String(call[0]))).not.toContain(SPRINGER_PDF);
+    expect(r.status).toBe('blocked');
+    expect(r.message).toContain('No open-access copy was found.');
+    expect(r.message).not.toContain(SPRINGER_PDF);
+  });
+
+  it('an off-proxy blocked result skips the publisher host from readUrl, not a redirected sourceUrl', async () => {
+    const DOI = '10.3390/su16010001';
+    const MDPI = 'https://www.mdpi.com/2071-1050/16/1/1';
+    const CHALLENGE = 'https://challenge.cdn.example/check';
+    const MDPI_PDF = 'https://www.mdpi.com/2071-1050/16/1/1/pdf';
+    const REPO_PDF = 'https://repo.example/su16010001.pdf';
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url.startsWith('https://link.ezproxy.neu.edu/')) {
+        return new Response(null, { status: 302, headers: { location: `https://doi-org.ezproxy.neu.edu/${DOI}` } });
+      }
+      if (url.startsWith('https://doi-org.ezproxy.neu.edu/')) return new Response(null, { status: 302, headers: { location: MDPI } });
+      if (url === MDPI) return new Response(null, { status: 302, headers: { location: CHALLENGE } });
+      if (url === CHALLENGE) return htmlResponse(fixture('mdpi-403.html'), 403);
+      if (url === REPO_PDF) return pdfResponse();
+      throw new Error(`unexpected request ${url}`);
+    });
+    const r = await getFullText(
+      { doi: DOI },
+      {
+        fetchImpl,
+        openAlexFetch: openAlexFetchFor([
+          { pdf_url: MDPI_PDF, version: 'publishedVersion', source: { display_name: 'Sustainability' } },
+          { pdf_url: REPO_PDF, version: 'acceptedVersion', source: { display_name: 'Example Repository' } },
+        ]),
+        lookupImpl: publicLookup,
+        sessionPath: ezproxySession(),
+      }
+    );
+    expect(fetchImpl.mock.calls.map((call) => String(call[0]))).not.toContain(MDPI_PDF);
+    expect(r.status).toBe('ok');
+    expect(r.sourceUrl).toBe(REPO_PDF);
+  });
+
   it('when no copy works, the original blocked result stays, with readUrl and a note', async () => {
     const fetchImpl = springerBlockedFetch(() => new Response('gone', { status: 404, headers: { 'content-type': 'text/plain' } }));
     const r = await getFullText(

@@ -10,6 +10,7 @@ import {
   isEzproxyLoginPage,
   isEzproxyMenuPage,
   isEzproxyInterstitial,
+  publisherHostFromEzproxy,
   absorbSetCookie,
   fetchEzproxyResource,
   fetchPublicResource,
@@ -88,6 +89,24 @@ describe('toEzproxyFetchUrl', () => {
     expect(toEzproxyFetchUrl('http://localhost/x')).toBeNull();
     expect(toEzproxyFetchUrl('https://user:pass@doi.org/10.1/x')).toBeNull();
     expect(toEzproxyFetchUrl('file:///etc/passwd')).toBeNull();
+  });
+});
+
+describe('publisherHostFromEzproxy', () => {
+  it('undoes the EZproxy host rewrite', () => {
+    expect(publisherHostFromEzproxy('link-springer-com.ezproxy.neu.edu')).toBe('link.springer.com');
+    expect(publisherHostFromEzproxy('www-sciencedirect-com.ezproxy.neu.edu')).toBe('www.sciencedirect.com');
+    expect(publisherHostFromEzproxy('LINK-SPRINGER-COM.EZPROXY.NEU.EDU.')).toBe('link.springer.com');
+  });
+  it('turns a doubled hyphen back into a hyphen', () => {
+    expect(publisherHostFromEzproxy('journals-sage--pub-com.ezproxy.neu.edu')).toBe('journals.sage-pub.com');
+  });
+  it('returns null for EZproxy own hosts and non-proxy hosts', () => {
+    expect(publisherHostFromEzproxy('link.ezproxy.neu.edu')).toBeNull();
+    expect(publisherHostFromEzproxy('login.ezproxy.neu.edu')).toBeNull();
+    expect(publisherHostFromEzproxy('ezproxy.neu.edu')).toBeNull();
+    expect(publisherHostFromEzproxy('link.springer.com')).toBeNull();
+    expect(publisherHostFromEzproxy('evil-ezproxy.neu.edu.example')).toBeNull();
   });
 });
 
