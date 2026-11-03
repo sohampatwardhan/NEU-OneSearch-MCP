@@ -92,7 +92,7 @@ flowchart TB
   - Use #5's `loadStoredCookies` and `sessionCachePath` defaults
   - _Requirements: 1.2, 1.3, 1.4, 1.5, 2.1, 2.4, 3.1, 3.2, 3.3, 3.5, 3.6, 3.7_
 
-- [ ] 6. Register the `get_full_text` tool in `src/index.ts`
+- [x] 6. Register the `get_full_text` tool in `src/index.ts`
   - Add the tool with a `doi`/`recordId` zod input schema, call `getFullText`,
     and return the JSON result; keep the existing `LoginRequiredError` catch for
     the metadata lookup path
