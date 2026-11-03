@@ -13,7 +13,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-11-03-full-text-coverage-design.md`. Read it, especially "Decisions from the builder review", which overrides earlier sections where they differ.
 
-**Issues:** #11, #12, sub-issues #13–#20. Reference the issue each task closes in its commit message.
+**Issues:** #11, #12, sub-issues #13–#20, and #21 (bundled skill). Reference the issue each task closes in its commit message.
 
 ## Global Constraints
 
@@ -525,5 +525,5 @@ it('ships in the npm package', () => {
   - **Body:**
     - a summary per task
     - the live-check output as a table
-    - `Closes #12 #13 #14 #15 #16 #17 #18 #20`, plus `#19` if Task 11 landed, and `Closes #11` only if every row matches the spec's outcomes table
+    - `Closes #12 #13 #14 #15 #16 #17 #18 #20 #21`, plus `#19` if Task 11 landed, and `Closes #11` only if every row matches the spec's outcomes table
     - the attribution footer
