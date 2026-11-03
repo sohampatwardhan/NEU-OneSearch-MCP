@@ -76,7 +76,7 @@ flowchart TB
   - Add `LoginRequiredError` and `isLoginRedirect` (401/403 or SSO-host redirect); make `primoClient` raise it; map it in `index.ts` tool handlers to a `login_required` result instead of a thrown error or empty list; keep valid-session and anonymous behavior unchanged
   - _Requirements: 2.3, 2.4, 2.5, 3.2_
 
-- [ ] 6. login CLI with persistent Chrome profile
+- [x] 6. login CLI with persistent Chrome profile
   - Rewrite `src/login.ts` to use `launchPersistentContext(profileDir(), { headless: false, channel: 'chrome' })`, navigate OneSearch then the EZproxy probe, read `context.cookies()`, write the cache via `writeSessionCache`, report captured EZproxy cookie names only (never values), and fail with a Chrome-naming message if the channel is missing
   - _Requirements: 1.1, 1.2, 1.4, 1.5, 1.6, 3.1, 3.3_
 
