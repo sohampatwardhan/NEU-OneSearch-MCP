@@ -289,6 +289,16 @@ Each mapped result includes `catalogUrl`, `doiUrl`, and `ezproxyDoiUrl` (the lat
 `doiUrl` (`https://doi.org/<doi>`) is a stable link that always resolves to the publisher's landing page and doesn't require an NEU session; prefer it when sharing links or opening them in a fresh browser.
 `ezproxyDoiUrl` (`https://doi-org.ezproxy.neu.edu/<doi>`) routes the same DOI through NEU's EZproxy — opening it prompts an NEU sign-in, then forwards through the library's subscriptions to the publisher, unlocking full text for anything NEU has access to. Use this one when you (as an NEU user) want authenticated full-text access rather than just the public landing page.
 
+## Agent skill
+
+A bundled skill, `neu-literature-review`, teaches an agent the whole literature-review workflow with these tools: searching with combined filters, triaging by abstract, fetching full text, and being honest when the full text is not retrieved. Install it with:
+
+```sh
+npx skills add sohampatwardhan/NEU-OneSearch-MCP --skill neu-literature-review
+```
+
+Add `-a <agent>` to target one agent or `-g` to install globally. The `skills` CLI needs Node 22.20 or later; that is a requirement of the CLI, not of this server.
+
 ## Development
 
 ```bash

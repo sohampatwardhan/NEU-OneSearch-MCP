@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - New `blocked` status for bot checks, challenges, CAPTCHA pages, EZproxy interstitials and cookie-less 403s. The server never solves or bypasses checks (#16).
 - Open-access fallback via OpenAlex for blocked, not proxied, not entitled, login-required (no session needed) and abstract-only results, with `version` reporting which copy was used (#18).
 - Overall 60-second deadline per `get_full_text` call; a timeout still returns a result with `readUrl`.
+- Bundled agent skill `neu-literature-review` (`skills/neu-literature-review/SKILL.md`, also shipped in the npm package). Install with `npx skills add sohampatwardhan/NEU-OneSearch-MCP --skill neu-literature-review` (#21).
 
 ### Fixed
 
