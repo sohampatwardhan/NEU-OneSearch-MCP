@@ -373,11 +373,30 @@ describe('getFullText', () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
-  it('rejects a non-alma record id the same way get_record does', async () => {
+  it('resolves a cdi_ recordId to its DOI', async () => {
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        pnx: {
+          control: { recordid: ['cdi_crossref_primary_10_34028_iajit_19_2_8'] },
+          addata: { doi: ['10.34028/iajit/19/2/8'] },
+        },
+      }),
+    });
+    const fetchImpl = vi.fn(async () => pdfResponse());
+    const result = await getFullText(
+      { recordId: 'cdi_crossref_primary_10_34028_iajit_19_2_8' },
+      { fetchImpl, sessionPath: ezproxySession() }
+    );
+    expect(result.doi).toBe('10.34028/iajit/19/2/8');
+    expect(result.status).toBe('ok');
+  });
+
+  it('never names get_record in a get_full_text error', async () => {
     const fetchImpl = vi.fn();
-    const result = await getFullText({ recordId: 'cdi_foo' }, { fetchImpl, sessionPath: ezproxySession() });
+    const result = await getFullText({ recordId: 'pq_1' }, { fetchImpl, sessionPath: ezproxySession() });
     expect(result.status).toBe('error');
-    expect(result.message).toMatch(/alma/);
+    expect(result.message).not.toMatch(/get_record/);
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 });

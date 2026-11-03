@@ -251,9 +251,9 @@ implemented.
   `resourceType`, `dateFrom`/`dateTo`, and `peerReviewedOnly` combine (AND) in a single call.
   `campus` restricts to one NEU campus/scope (`all` (default), `boston`, `oakland`, or `online`) — `all` is genuine all-campus results (`CDI_plus_all_local`), not just Boston + central index.
 - `get_record(recordId)` — fetch full detail (abstract, table of contents, availability, full-text link) for one result from a prior search.
-  Only supports NEU catalog records (`recordId` starting with `alma`).
+  Accepts catalog records (`recordId` starting with `alma`) and Central Discovery Index articles (`recordId` starting with `cdi_`).
 - `get_full_text(doi?, recordId?)` — retrieve and extract the plain text of a subscribed article, fetched through NEU EZproxy using the cached sign-in session.
-  Pass a DOI (preferred, from a prior `search_onesearch` result) or an `alma` record id. The tool routes the link through EZproxy, downloads the PDF or HTML, and returns extracted text with caps (about 20 MiB download, 40 PDF pages, 100k characters).
+  Pass a DOI (preferred, from a prior `search_onesearch` result) or an `alma` or `cdi_` record id. The tool routes the link through EZproxy, downloads the PDF or HTML, and returns extracted text with caps (about 20 MiB download, 40 PDF pages, 100k characters).
   The result is JSON with a `status` and never contains any cookie value:
 
   | `status` | Meaning |
@@ -266,7 +266,7 @@ implemented.
   | `not_found` | The record or proxied URL returned nothing (404). |
   | `too_large` | The download exceeded the size cap and was not parsed. |
   | `unsupported` | No DOI/full-text link, a non-text or image-only response, or a bot/CAPTCHA wall. This server does not OCR or solve CAPTCHAs. |
-  | `error` | Bad input (no/invalid `doi` or non-`alma` `recordId`) or a transport failure. |
+  | `error` | Bad input (no/invalid `doi` or unsupported `recordId` prefix) or a transport failure. |
 
   When EZproxy hands back an unproxied publisher URL, the tool fetches that page (and its `citation_pdf_url`) directly, with no session cookie, and returns `ok`/`partial` with a message saying so. Direct fetches only go to public http(s) hosts: every hop's hostname must resolve to public addresses only.
 

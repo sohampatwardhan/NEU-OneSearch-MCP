@@ -95,12 +95,12 @@ describe('MCP server tools', () => {
   it('get_record returns an error message for unsupported record ids', async () => {
     const client = await connectedClient(createServer());
     const result = await client.request(
-      { method: 'tools/call', params: { name: 'get_record', arguments: { recordId: 'cdi_foo' } } },
+      { method: 'tools/call', params: { name: 'get_record', arguments: { recordId: 'pq_foo' } } },
       CallToolResultSchema
     );
 
     expect(result.isError).toBe(true);
-    expect((result.content[0] as { text: string }).text).toContain('only supports Northeastern catalog records');
+    expect((result.content[0] as { text: string }).text).toContain('Unsupported record id');
   });
 
   it('search_onesearch returns a login_required result when a stale session is rejected', async () => {

@@ -72,7 +72,7 @@ export function createServer(): McpServer {
       description:
         'Fetch full detail for a single OneSearch catalog record (abstract, table of contents, availability, full-text link).',
       inputSchema: {
-        recordId: z.string().describe('Record id from a prior search_onesearch result (must start with "alma")'),
+        recordId: z.string().describe('Record id from a prior search_onesearch result (starts with "alma" for catalog records or "cdi_" for Central Discovery Index articles)'),
       },
     },
     async ({ recordId }) => {
@@ -98,13 +98,13 @@ export function createServer(): McpServer {
     'get_full_text',
     {
       description:
-        'Retrieve and extract the plain text of an article Northeastern subscribes to, fetched through the library EZproxy using the cached sign-in session. Pass a DOI (preferred) or an alma OneSearch record id. Requires a valid EZproxy session from `neu-onesearch-login`; returns status `login_required` when the session is missing or expired. Publishers the NEU proxy does not cover (usually open access) are fetched directly without the session; if that fails the status is `not_proxied` and `sourceUrl` is the publisher URL to open. Result statuses: ok, partial, login_required, not_proxied, not_entitled, not_found, too_large, unsupported, error.',
+        'Retrieve and extract the plain text of an article Northeastern subscribes to, fetched through the library EZproxy using the cached sign-in session. Pass a DOI (preferred) or an "alma" or "cdi_" OneSearch record id. Requires a valid EZproxy session from `neu-onesearch-login`; returns status `login_required` when the session is missing or expired. Publishers the NEU proxy does not cover (usually open access) are fetched directly without the session; if that fails the status is `not_proxied` and `sourceUrl` is the publisher URL to open. Result statuses: ok, partial, login_required, not_proxied, not_entitled, not_found, too_large, unsupported, error.',
       inputSchema: {
         doi: z.string().optional().describe('Article DOI, or a https://doi.org/ URL (preferred input)'),
         recordId: z
           .string()
           .optional()
-          .describe('alma OneSearch record id from a prior search_onesearch/get_record result'),
+          .describe('"alma" or "cdi_" OneSearch record id from a prior search_onesearch/get_record result'),
       },
     },
     async ({ doi, recordId }) => {

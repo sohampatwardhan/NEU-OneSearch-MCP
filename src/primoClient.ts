@@ -13,26 +13,30 @@ export const CAMPUS_SCOPES: Record<'all' | 'boston' | 'oakland' | 'online', { ta
   online: { tab: 'Online', scope: 'CDI_and_EResources' },
 };
 
-async function fetchPrimo(params: URLSearchParams): Promise<PrimoSearchResponse> {
+async function fetchPrimoJson<T>(url: string, opts: { nullOn404?: boolean } = {}): Promise<T | null> {
   const cookie = loadSession();
-  const response = await fetch(
-    `${BASE_URL}?${params.toString()}`,
-    cookie ? { headers: { Cookie: cookie } } : undefined
-  );
+  const response = await fetch(url, cookie ? { headers: { Cookie: cookie } } : undefined);
   // When we attached a session and the server bounced us to sign in (or
   // rejected the cookie), surface that as login_required rather than a generic
   // failure or a silently empty result.
   if (cookie && isLoginRedirect(response)) {
     throw new LoginRequiredError();
   }
+  if (opts.nullOn404 && response.status === 404) {
+    return null;
+  }
   if (!response.ok) {
     throw new Error(`OneSearch request failed: HTTP ${response.status}`);
   }
   try {
-    return (await response.json()) as PrimoSearchResponse;
+    return (await response.json()) as T;
   } catch {
     throw new Error('OneSearch returned an unparseable response');
   }
+}
+
+async function fetchPrimo(params: URLSearchParams): Promise<PrimoSearchResponse> {
+  return (await fetchPrimoJson<PrimoSearchResponse>(`${BASE_URL}?${params.toString()}`)) as PrimoSearchResponse;
 }
 
 export function buildFacetClause(params: SearchOneSearchParams): string {
@@ -77,10 +81,26 @@ export async function searchOneSearch(params: SearchOneSearchParams): Promise<Pr
   return fetchPrimo(buildSearchParams(params));
 }
 
+async function getCdiRecord(recordId: string): Promise<PrimoDoc | null> {
+  const params = new URLSearchParams({
+    inst: INST,
+    lang: 'en',
+    vid: VID,
+    search_scope: CAMPUS_SCOPES.all.scope,
+    adaptor: 'Primo Central',
+  });
+  return fetchPrimoJson<PrimoDoc>(`${BASE_URL}/CDI/${encodeURIComponent(recordId)}?${params.toString()}`, {
+    nullOn404: true,
+  });
+}
+
 export async function getRecord(recordId: string): Promise<PrimoDoc | null> {
+  if (recordId.startsWith('cdi_')) {
+    return getCdiRecord(recordId);
+  }
   if (!recordId.startsWith('alma')) {
     throw new Error(
-      `get_record only supports Northeastern catalog records (recordId starting with "alma"), received: ${recordId}`
+      `Unsupported record id "${recordId}". Use a recordId from search_onesearch: it starts with "alma" (catalog) or "cdi_" (Central Discovery Index).`
     );
   }
   const mmsId = recordId.slice('alma'.length);

@@ -180,7 +180,7 @@ async function resolveTarget(input: GetFullTextInput): Promise<ResolvedTarget | 
   if (!doi && !recordId) {
     return emptyResult({
       status: 'error',
-      message: 'Provide a doi from search_onesearch (preferred, including CDI articles) or an alma recordId.',
+      message: 'Provide a doi from search_onesearch (preferred, including CDI articles) or an "alma" or "cdi_" recordId.',
     });
   }
 
