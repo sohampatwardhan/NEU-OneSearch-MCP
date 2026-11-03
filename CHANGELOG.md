@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-03
+
 ### Added
 
 - `get_full_text` and `get_record` accept `cdi_` Central Discovery Index record ids as well as `alma` ids (#12). For `cdi_` records without a DOI, full-text links from `pnx.links` are used (#20).
