@@ -145,8 +145,9 @@ const STRONG_BOT_WALL_PHRASES = [
   'Attention Required! \\| Cloudflare',
   'please complete the captcha',
 ].join('|');
-// A phrase run into a hyphenated word ("client challenge-response") is a real title in an h1.
-const STRONG_BOT_WALL_RE = new RegExp(`(?:${STRONG_BOT_WALL_PHRASES})(?![-\u2010\u2011]\\w)`, 'i');
+// A phrase that runs on into a longer word ("client challenges", "client challenge-response",
+// with any hyphen or dash) is a real title in an h1, not an interstitial.
+const STRONG_BOT_WALL_RE = new RegExp(`(?:${STRONG_BOT_WALL_PHRASES})(?![\\w\\-\u2010-\u2015])`, 'i');
 // In the title the phrase must be the whole title, optionally followed by a spaced site
 // suffix ("Just a moment... | Site"), so "Client challenge-response authentication" is not misread.
 const STRONG_BOT_WALL_TITLE_RE = new RegExp(
@@ -164,16 +165,16 @@ export function looksLikeBotWall(html: string, text: string): boolean {
   // htmlToText drops <noscript>, but challenge pages (IEEE's) put their message only there.
   // A short noscript notice on a page with real text is an ordinary "enable JavaScript" hint.
   const noscript = (html.match(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi) ?? []).join(' ').replace(/<[^>]+>/g, ' ');
+  // Interstitials carry almost no text, so the phrases only count in the body of a short page.
+  const shortPage = text.length < BOT_WALL_MAX_TEXT_CHARS;
   if (
     STRONG_BOT_WALL_TITLE_RE.test(title) ||
-    STRONG_BOT_WALL_RE.test(text.slice(0, BOT_WALL_OPENING_CHARS)) ||
-    (noscript.length < BOT_WALL_OPENING_CHARS &&
-      text.length < BOT_WALL_MAX_TEXT_CHARS &&
-      STRONG_BOT_WALL_RE.test(noscript))
+    (shortPage && STRONG_BOT_WALL_RE.test(text.slice(0, BOT_WALL_OPENING_CHARS))) ||
+    (shortPage && noscript.length < BOT_WALL_OPENING_CHARS && STRONG_BOT_WALL_RE.test(noscript))
   ) {
     return true;
   }
-  return WEAK_BOT_WALL_RE.test(html) && text.length < BOT_WALL_MAX_TEXT_CHARS;
+  return shortPage && WEAK_BOT_WALL_RE.test(html);
 }
 
 const LINKING_HUB_HOSTS = new Set(['linkinghub.elsevier.com', 'linkinghub-elsevier-com.ezproxy.neu.edu']);

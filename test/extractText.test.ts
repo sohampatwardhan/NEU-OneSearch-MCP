@@ -131,6 +131,27 @@ describe('looksLikeBotWall', () => {
     expect(looksLikeBotWall(html, htmlToText(html))).toBe(false);
   });
 
+  it.each([
+    'Client challenges in federated learning deployments',
+    'Client challenge–response authentication for IoT',
+    'Why users fail to verify you are human checks: a CAPTCHA usability study',
+  ])('a long article opening with %j is not a bot wall', (heading) => {
+    const body = 'Invented article body sentence about authentication protocols. '.repeat(60);
+    const html = `<html><head><title>Paper</title></head>
+      <body><article><h1>${heading}</h1><p>${body}</p></article></body></html>`;
+    const text = htmlToText(html);
+    expect(text.length).toBeGreaterThan(1500);
+    expect(looksLikeBotWall(html, text)).toBe(false);
+  });
+
+  it.each(['Client challenges ahead', 'Client challenge–response'])(
+    'a short page opening with %j is not a bot wall',
+    (heading) => {
+      const html = `<title>Paper</title><h1>${heading}</h1><p>Short abstract.</p>`;
+      expect(looksLikeBotWall(html, htmlToText(html))).toBe(false);
+    }
+  );
+
   it('a long article with a short noscript carrying a strong phrase is not a bot wall', () => {
     const body = 'Invented article body sentence for the noscript case. '.repeat(60);
     const html = `<html><head><title>Paper</title></head><body>

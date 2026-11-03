@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Fixed
 
 - Elsevier `linkinghub` redirects are followed, and abstract-only ScienceDirect pages are reported as `partial` with `textKind` `abstract` (#15).
-- Real Wiley article pages were misread as bot walls (false positive in `looksLikeBotWall`) (#14).
+- Real Wiley article pages were misread as bot walls (false positive in `looksLikeBotWall`) (#14). Challenge phrases in a page's text now count only on short pages, and only as whole words, so an article opening with "Client challenges…" is not misread.
 - Bot walls are reported as `blocked` instead of `unsupported` (#16).
 
 ## [0.3.0] - 2026-11-03
