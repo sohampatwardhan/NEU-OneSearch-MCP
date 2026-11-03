@@ -64,7 +64,7 @@ flowchart TB
   - Add `src/cache.ts`: `resolveCacheDir` (honor `NEU_ONESEARCH_CACHE_DIR`, else `~/.cache/neu-onesearch-mcp`), `profileDir`, `sessionCachePath`, `ensureCacheDir` (mkdir `0700`), `removeSession` (delete cache file and profile dir, idempotent)
   - _Requirements: 1.3, 4.1, 4.2_
 
-- [ ] 3. Session cookie cache, classification, and host-scoped header
+- [x] 3. Session cookie cache, classification, and host-scoped header
   - Add/extend `src/session.ts`: `StoredCookie`, `SessionCache`, `writeSessionCache` (`0600`), `loadStoredCookies` (null on missing/unreadable/malformed), `isCookieExpired`, `isEzproxyHostname`, `hasEzproxySession`, `hasOneSearchSession`, `classifySession` (`ready|absent|expired|unusable`), `cookieHeaderForHost` (host-scoped, unexpired only), keep `loadSession` for OneSearch
   - _Requirements: 1.2, 2.1, 2.2, 2.3, 3.3_
 

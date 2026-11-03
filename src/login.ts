@@ -3,7 +3,9 @@ import { chromium } from 'playwright';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { createInterface } from 'node:readline/promises';
-import { SESSION_PATH } from './session.js';
+import { sessionCachePath } from './cache.js';
+
+const SESSION_PATH = sessionCachePath();
 
 const LOGIN_URL = 'https://onesearch.library.northeastern.edu/discovery/login?vid=01NEU_INST:NUL';
 
