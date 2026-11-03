@@ -9,6 +9,7 @@ import {
   isBlockedHostname,
   isEzproxyLoginPage,
   isEzproxyMenuPage,
+  isEzproxyInterstitial,
   absorbSetCookie,
   fetchEzproxyResource,
   fetchPublicResource,
@@ -21,6 +22,7 @@ import { createServer, type IncomingHttpHeaders } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { isSignInHostname } from '../src/auth.js';
 import { vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import type { StoredCookie } from '../src/session.js';
 
 describe('normalizeDoi', () => {
@@ -415,5 +417,18 @@ describe('createPinnedFetch', () => {
       expect(hits).toHaveLength(2);
       for (const headers of hits) expect(headers.cookie).toBeUndefined();
     });
+  });
+});
+
+describe('isEzproxyInterstitial', () => {
+  const html = readFileSync(new URL('./fixtures/ezproxy-interstitial.html', import.meta.url), 'utf-8');
+  it('is true for the wait-a-moment page on an EZproxy login host', () => {
+    expect(isEzproxyInterstitial('https://link.ezproxy.neu.edu/login?qurl=https%3A%2F%2Fdoi.org%2Fx', html)).toBe(true);
+    expect(isEzproxyInterstitial('https://login.ezproxy.neu.edu/login', html.toUpperCase())).toBe(true);
+  });
+  it('is false for the same text on a publisher host or without the text', () => {
+    expect(isEzproxyInterstitial('https://www.example-publisher.com/article', html)).toBe(false);
+    expect(isEzproxyInterstitial('https://link.ezproxy.neu.edu/login', '<html>hello</html>')).toBe(false);
+    expect(isEzproxyInterstitial('not a url', html)).toBe(false);
   });
 });

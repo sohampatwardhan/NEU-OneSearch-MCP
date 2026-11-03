@@ -5,6 +5,7 @@ import {
   fetchEzproxyResource,
   fetchPublicResource,
   FULL_TEXT_LIMITS,
+  isEzproxyInterstitial,
   isEzproxyLoginPage,
   isEzproxyMenuPage,
   normalizeDoi,
@@ -244,6 +245,25 @@ async function textFromPdf(
   });
 }
 
+const BLOCKED_MESSAGE =
+  "The publisher blocked automated access with a bot check, which does not mean NEU lacks access to this article. An agent with a browser can open the link and the user can finish the check there. This server does not solve CAPTCHAs.";
+
+function blockedResult(
+  base: ResolvedTarget,
+  fields: Partial<FullTextResult>,
+  message: string = BLOCKED_MESSAGE
+): FullTextResult {
+  return emptyResult({
+    status: 'blocked',
+    doi: base.doi,
+    recordId: base.recordId,
+    title: base.title,
+    ...fields,
+    text: null,
+    message,
+  });
+}
+
 function textFromHtml(
   html: string,
   contentType: string,
@@ -256,18 +276,7 @@ function textFromHtml(
   const title = findMetaContent(html, 'citation_title') ?? base.title;
   const routed = (message: string) => (route === 'direct' ? `${DIRECT_NOTE} ${message}` : message);
   if (looksLikeBotWall(html, text)) {
-    return emptyResult({
-      status: 'unsupported',
-      doi: base.doi,
-      recordId: base.recordId,
-      title,
-      sourceUrl,
-      contentType,
-      via: 'html',
-      message: routed(
-        'The publisher or proxy returned a bot check or CAPTCHA instead of the article. Open the source URL in a browser while signed in. This server does not solve CAPTCHAs.'
-      ),
-    });
+    return blockedResult(base, { title, sourceUrl, contentType, via: 'html' }, BLOCKED_MESSAGE);
   }
 
   const clipped = clip(text, maxChars);
@@ -323,7 +332,8 @@ function notProxied(base: ResolvedTarget, publisherUrl: string, reason: string):
     recordId: base.recordId,
     title: base.title,
     sourceUrl: publisherUrl,
-    message: `${reason} The article is at ${publisherUrl}. Open that URL directly; signing in again will not help.`,
+    readUrl: publisherUrl,
+    message: `${reason} This publisher is not on NEU's proxy, so signing in again will not help.`,
   });
 }
 
@@ -341,6 +351,14 @@ async function fullTextDirectInner(
   if (fetched.kind === 'too_large') return failureFromProxy(fetched, target);
   if (fetched.kind !== 'response') {
     return notProxied(target, publisherUrl, `${offProxy.message} A direct fetch failed: ${fetched.message}`);
+  }
+  if (fetched.httpStatus === 403) {
+    // Without a session cookie a 403 is the publisher refusing a script, not a statement about access.
+    return blockedResult(
+      target,
+      { sourceUrl: fetched.finalUrl, contentType: fetched.contentType || null, readUrl: publisherUrl },
+      BLOCKED_MESSAGE
+    );
   }
   if (fetched.httpStatus >= 400) {
     return notProxied(
@@ -440,6 +458,13 @@ function httpFailure(response: Extract<ProxyFetchResult, { kind: 'response' }>, 
     const html = response.contentType.toLowerCase().includes('html')
       ? decodeBody(response.body, response.contentType)
       : '';
+    if (html && looksLikeBotWall(html, htmlToText(html))) {
+      return blockedResult(base, {
+        sourceUrl: response.finalUrl,
+        contentType: response.contentType || null,
+        via: 'html',
+      });
+    }
     const text = html ? clip(htmlToText(html), 2000).text : null;
     return emptyResult({
       status: 'not_entitled',
@@ -525,6 +550,10 @@ async function fetchFullText(target: ResolvedTarget, options: GetFullTextOptions
   }
 
   const html = decodeBody(fetched.body, fetched.contentType);
+  if (isEzproxyInterstitial(fetched.finalUrl, html)) {
+    // Never follow the hand-off link: it is the bot check this server must not get around.
+    return blockedResult(target, { sourceUrl: fetched.finalUrl, contentType: fetched.contentType || null, via: 'html' });
+  }
   if (isEzproxyMenuPage(fetched.finalUrl)) {
     return emptyResult({
       status: 'error',
@@ -560,7 +589,7 @@ async function fetchFullText(target: ResolvedTarget, options: GetFullTextOptions
       if (!pdfHttpError && looksLikePdf(pdfResponse.body, pdfResponse.contentType)) {
         return textFromPdf(pdfResponse.body, pdfResponse.contentType, pdfResponse.finalUrl, titledTarget, options);
       }
-      if (pdfHttpError?.status === 'not_entitled') return pdfHttpError;
+      if (pdfHttpError?.status === 'not_entitled' || pdfHttpError?.status === 'blocked') return pdfHttpError;
     } else if (pdfResponse.kind === 'too_large') {
       return failureFromProxy(pdfResponse, titledTarget);
     }

@@ -240,13 +240,15 @@ describe('getFullText', () => {
     });
 
     it('returns not_proxied with the publisher URL when the direct fetch is refused', async () => {
-      const fetchImpl = plosFetch(() => new Response('denied', { status: 403, headers: { 'content-type': 'text/plain' } }));
+      const fetchImpl = plosFetch(() => new Response('gone', { status: 404, headers: { 'content-type': 'text/plain' } }));
       const result = await getFullText({ doi: PLOS_DOI }, { fetchImpl, lookupImpl: publicLookup, sessionPath: ezproxySession() });
       expect(result.status).toBe('not_proxied');
       expect(result.text).toBeNull();
       expect(result.sourceUrl).toBe(DX_URL);
-      expect(result.message).toContain(DX_URL);
-      expect(result.message).toMatch(/HTTP 403/);
+      expect(result.readUrl).toBe(DX_URL);
+      expect(result.message.split(DX_URL).length - 1).toBe(1);
+      expect(result.message).toMatch(/signing in again will not help/i);
+      expect(result.message).toMatch(/HTTP 404/);
       expect(result.message).not.toMatch(/Re-run/);
       expect(JSON.stringify(result)).not.toContain(COOKIE);
     });
@@ -456,7 +458,7 @@ describe('getFullText', () => {
           return new Response(null, { status: 302, headers: { location: 'https://doi-org.ezproxy.neu.edu/10.1371/journal.pone.0212767' } });
         }
         if (url.startsWith('https://doi-org.ezproxy.neu.edu/')) return new Response(null, { status: 302, headers: { location: PUB } });
-        return new Response('denied', { status: 403, headers: { 'content-type': 'text/plain' } });
+        return new Response('gone', { status: 404, headers: { 'content-type': 'text/plain' } });
       });
       const r = await getFullText(
         { doi: '10.1371/journal.pone.0212767' },
@@ -465,6 +467,7 @@ describe('getFullText', () => {
       expect(r.status).toBe('not_proxied');
       expect(r.readUrl).toBe(PUB);
       expect(r.fullText).toBe(false);
+      expect(r.message.split(PUB).length - 1).toBe(1);
     });
 
     it('marks a successful extraction as full text with no readUrl', async () => {
@@ -479,5 +482,64 @@ describe('getFullText', () => {
       const none = await getFullText({}, { fetchImpl: vi.fn() });
       expect(none).toMatchObject({ status: 'error', fullText: false, readUrl: null });
     });
+  });
+});
+
+describe('blocked status', () => {
+  const fixture = (name: string) => readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'fixtures', name), 'utf-8');
+  const htmlResponse = (body: string, status = 200) =>
+    new Response(body, { status, headers: { 'content-type': 'text/html; charset=utf-8' } });
+  const expectBlockedMessage = (message: string) => {
+    expect(message).toMatch(/blocked automated access/);
+    expect(message).toMatch(/browser/);
+    expect(message).toMatch(/CAPTCHA/);
+  };
+
+  it('a Springer challenge page is blocked, not partial', async () => {
+    const fetchImpl = vi.fn(async () => htmlResponse(fixture('challenge-springer.html')));
+    const r = await getFullText({ doi: '10.1007/s42979-024-03476-y' }, { fetchImpl, sessionPath: ezproxySession() });
+    expect(r.status).toBe('blocked');
+    expect(r.text).toBeNull();
+    expect(r.fullText).toBe(false);
+    expect(r.readUrl).toMatch(/^https:\/\/link\.ezproxy\.neu\.edu\/login\?qurl=/);
+    expectBlockedMessage(r.message);
+  });
+
+  it('an IEEE challenge served as 403 is blocked, not not_entitled', async () => {
+    const fetchImpl = vi.fn(async () => htmlResponse(fixture('challenge-ieee.html'), 403));
+    const r = await getFullText({ doi: '10.1109/5.771073' }, { fetchImpl, sessionPath: ezproxySession() });
+    expect(r.status).toBe('blocked');
+    expect(r.text).toBeNull();
+    expectBlockedMessage(r.message);
+  });
+
+  it('the EZproxy interstitial is blocked and its link is not followed', async () => {
+    const fetchImpl = vi.fn(async () => htmlResponse(fixture('ezproxy-interstitial.html')));
+    const r = await getFullText({ doi: '10.1007/s42979-024-03476-y' }, { fetchImpl, sessionPath: ezproxySession() });
+    expect(r.status).toBe('blocked');
+    expect(r.text).toBeNull();
+    expectBlockedMessage(r.message);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('a direct 403 is blocked and does not suggest a paywall', async () => {
+    const DOI = '10.3390/su16010001';
+    const MDPI = 'https://www.mdpi.com/2071-1050/16/1/1';
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url.startsWith('https://link.ezproxy.neu.edu/')) {
+        return new Response(null, { status: 302, headers: { location: `https://doi-org.ezproxy.neu.edu/${DOI}` } });
+      }
+      if (url.startsWith('https://doi-org.ezproxy.neu.edu/')) {
+        return new Response(null, { status: 302, headers: { location: MDPI } });
+      }
+      return htmlResponse(fixture('mdpi-403.html'), 403);
+    });
+    const r = await getFullText({ doi: DOI }, { fetchImpl, lookupImpl: async () => ['151.101.1.1'], sessionPath: ezproxySession() });
+    expect(r.status).toBe('blocked');
+    expect(r.text).toBeNull();
+    expect(r.message).not.toMatch(/open access|paywall|subscri/i);
+    expectBlockedMessage(r.message);
+    expect(r.readUrl).toBe(MDPI);
+    expect(r.message.split(MDPI).length - 1).toBe(1);
   });
 });

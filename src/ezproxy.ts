@@ -203,6 +203,21 @@ export function isEzproxyMenuPage(url: string): boolean {
   return parsed.pathname.replace(/\/+$/, '') === '/menu';
 }
 
+/**
+ * True when EZproxy answered with its "wait a moment or click here" hand-off page. It is a
+ * bot-check style stop, never a sign-in problem, and its link must not be followed.
+ */
+export function isEzproxyInterstitial(url: string, html: string): boolean {
+  let host = '';
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  if (host !== 'link.ezproxy.neu.edu' && host !== 'login.ezproxy.neu.edu') return false;
+  return /wait a moment or click\s+(?:<[^>]*>\s*)*here(?:\s*<[^>]*>)*\s+to continue/i.test(html);
+}
+
 /** True when a proxied response is EZproxy's own NU IT sign-in page. */
 export function isEzproxyLoginPage(url: string, bodyText: string): boolean {
   let host = '';
