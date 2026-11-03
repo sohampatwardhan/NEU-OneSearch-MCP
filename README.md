@@ -260,7 +260,7 @@ implemented.
   | --- | --- |
   | `ok` | Full text extracted. `via` is `pdf` or `html`; `text` holds the extracted content. |
   | `partial` | Some text, but likely an abstract/landing page or mixed with access-wall prompts. `textKind` says `abstract` for abstract-only text (for example ScienceDirect pages through the proxy) or `unknown`. |
-  | `login_required` | No usable EZproxy session (missing, OneSearch-only, expired, or rejected). Run `neu-onesearch-login` and finish the EZproxy step. No network request is made when the session is absent. |
+  | `login_required` | No usable EZproxy session (missing, OneSearch-only, expired, or rejected). Run `neu-onesearch-login` and finish the EZproxy step. Without a session no request goes to the library proxy, but the open-access fallback may still query OpenAlex and fetch open-access copies (never with cookies); if it finds one, the status is `ok` instead. |
   | `not_proxied` | EZproxy passed the request through to a publisher it does not proxy (usually open access, such as PLOS), and a direct fetch of that page did not yield text. `sourceUrl` is the publisher URL to open. Signing in again will not help. |
   | `not_entitled` | A publisher access wall or HTTP 401/403 — NEU may not subscribe, or the publisher blocked the download. |
   | `not_found` | The record or proxied URL returned nothing (404). |

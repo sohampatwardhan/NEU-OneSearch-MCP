@@ -40,11 +40,11 @@ Use this with the `neu-onesearch` MCP server (`search_onesearch`, `get_record`, 
 
 ## Statuses and what to do
 
-- `ok`: read `text`, note `version`, cite the DOI.
+- `ok`: read `text` and cite the DOI. If `version` is not `null`, the library route failed and this is an open-access copy; say which version you read.
 - `partial`: you have an abstract or a fragment. Treat it as an abstract. Show `readUrl`.
-- `login_required`: no valid NEU session. Tell the user to run `neu-onesearch-login` and complete the NEU sign-in and Duo prompt themselves in the browser window it opens. Never ask for or type their credentials. Retry once only after the user says they have signed in. The result may still be useful meanwhile if an open-access copy was found.
+- `login_required`: no valid NEU session. Tell the user to run `neu-onesearch-login` and complete the NEU sign-in and Duo prompt themselves in the browser window it opens. Never ask for or type their credentials. Retry once only after the user says they have signed in.
 - `blocked`: the publisher showed a bot check, challenge page or other access wall. Do not try to get around it, solve a CAPTCHA, or retry with variations. Show `readUrl`. If your harness has a browser, you may open `readUrl` for the user; they handle any sign-in or check themselves. Otherwise just give the link.
-- `not_proxied`, `not_entitled`: the library proxy cannot reach it, or Northeastern has no access. Show `readUrl`. Mention if an open-access `version` was used instead.
+- `not_proxied`, `not_entitled`: the library proxy cannot reach it, or Northeastern has no access. Show `readUrl`.
 - `too_large`, `unsupported`: the file could not be read as text. Show `readUrl`.
 - `not_found`, `error`: report the `message`. If you typed the identifier by hand, verify it once against the search result; otherwise just report it.
 
