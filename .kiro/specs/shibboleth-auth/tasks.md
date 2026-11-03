@@ -68,7 +68,7 @@ flowchart TB
   - Add/extend `src/session.ts`: `StoredCookie`, `SessionCache`, `writeSessionCache` (`0600`), `loadStoredCookies` (null on missing/unreadable/malformed), `isCookieExpired`, `isEzproxyHostname`, `hasEzproxySession`, `hasOneSearchSession`, `classifySession` (`ready|absent|expired|unusable`), `cookieHeaderForHost` (host-scoped, unexpired only), keep `loadSession` for OneSearch
   - _Requirements: 1.2, 2.1, 2.2, 2.3, 3.3_
 
-- [ ] 4. EZproxy URLs and probe DOI
+- [x] 4. EZproxy URLs and probe DOI
   - Add `src/ezproxy.ts`: `EZPROXY_LOGIN_ORIGIN`, `EZPROXY_PROBE_DOI`, DOI normalization, `buildEzproxyDoiUrl`; reused from PR #2, trimmed to what login needs
   - _Requirements: 1.2_
 
