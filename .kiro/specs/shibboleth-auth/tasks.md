@@ -72,7 +72,7 @@ flowchart TB
   - Add `src/ezproxy.ts`: `EZPROXY_LOGIN_ORIGIN`, `EZPROXY_PROBE_DOI`, DOI normalization, `buildEzproxyDoiUrl`; reused from PR #2, trimmed to what login needs
   - _Requirements: 1.2_
 
-- [ ] 5. Surface login_required from the request path
+- [x] 5. Surface login_required from the request path
   - Add `LoginRequiredError` and `isLoginRedirect` (401/403 or SSO-host redirect); make `primoClient` raise it; map it in `index.ts` tool handlers to a `login_required` result instead of a thrown error or empty list; keep valid-session and anonymous behavior unchanged
   - _Requirements: 2.3, 2.4, 2.5, 3.2_
 

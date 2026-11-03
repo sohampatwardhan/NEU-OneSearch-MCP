@@ -3,6 +3,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
 import { createServer } from '../src/index.js';
+import * as sessionModule from '../src/session.js';
 
 async function connectedClient(server: ReturnType<typeof createServer>) {
   const client = new Client({ name: 'test client', version: '1.0' });
@@ -17,6 +18,7 @@ describe('MCP server tools', () => {
   });
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
 
   it('search_onesearch returns mapped results as JSON text', async () => {
@@ -92,6 +94,28 @@ describe('MCP server tools', () => {
 
     expect(result.isError).toBe(true);
     expect((result.content[0] as { text: string }).text).toContain('only supports Northeastern catalog records');
+  });
+
+  it('search_onesearch returns a login_required result when a stale session is rejected', async () => {
+    vi.spyOn(sessionModule, 'loadSession').mockReturnValue('JSESSIONID=stale');
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: false,
+      status: 401,
+      url: 'https://onesearch.library.northeastern.edu/primaws/x',
+      redirected: false,
+      json: async () => ({}),
+    });
+
+    const client = await connectedClient(createServer());
+    const result = await client.request(
+      { method: 'tools/call', params: { name: 'search_onesearch', arguments: { query: 'test' } } },
+      CallToolResultSchema
+    );
+
+    expect(result.isError).toBeFalsy();
+    const parsed = JSON.parse((result.content[0] as { text: string }).text);
+    expect(parsed.status).toBe('login_required');
+    expect(parsed.message).toContain('login');
   });
 
   it('get_record returns "no record found" for a valid but missing id', async () => {

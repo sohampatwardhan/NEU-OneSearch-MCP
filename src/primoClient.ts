@@ -1,5 +1,6 @@
 import type { PrimoDoc, PrimoSearchResponse, SearchOneSearchParams } from './types.js';
 import { loadSession } from './session.js';
+import { isLoginRedirect, LoginRequiredError } from './auth.js';
 
 const BASE_URL = 'https://onesearch.library.northeastern.edu/primaws/rest/pub/pnxs';
 const INST = '01NEU_INST';
@@ -18,6 +19,12 @@ async function fetchPrimo(params: URLSearchParams): Promise<PrimoSearchResponse>
     `${BASE_URL}?${params.toString()}`,
     cookie ? { headers: { Cookie: cookie } } : undefined
   );
+  // When we attached a session and the server bounced us to sign in (or
+  // rejected the cookie), surface that as login_required rather than a generic
+  // failure or a silently empty result.
+  if (cookie && isLoginRedirect(response)) {
+    throw new LoginRequiredError();
+  }
   if (!response.ok) {
     throw new Error(`OneSearch request failed: HTTP ${response.status}`);
   }

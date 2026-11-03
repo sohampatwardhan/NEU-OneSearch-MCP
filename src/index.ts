@@ -7,6 +7,18 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import { searchOneSearch, getRecord } from './primoClient.js';
 import { mapSearchResponse, mapDoc } from './mapper.js';
+import { LoginRequiredError } from './auth.js';
+
+function loginRequiredResult(err: LoginRequiredError) {
+  return {
+    content: [
+      {
+        type: 'text' as const,
+        text: JSON.stringify({ status: 'login_required', message: err.message }, null, 2),
+      },
+    ],
+  };
+}
 
 // package.json sits one level above both src/ and dist/, so this resolves in tests and in the published package.
 const { version } = createRequire(import.meta.url)('../package.json') as { version: string };
@@ -42,6 +54,9 @@ export function createServer(): McpServer {
         const mapped = mapSearchResponse(raw, params.campus);
         return { content: [{ type: 'text' as const, text: JSON.stringify(mapped, null, 2) }] };
       } catch (err) {
+        if (err instanceof LoginRequiredError) {
+          return loginRequiredResult(err);
+        }
         return {
           content: [{ type: 'text' as const, text: `OneSearch search failed: ${(err as Error).message}` }],
           isError: true,
@@ -67,6 +82,9 @@ export function createServer(): McpServer {
         }
         return { content: [{ type: 'text' as const, text: JSON.stringify(mapDoc(doc), null, 2) }] };
       } catch (err) {
+        if (err instanceof LoginRequiredError) {
+          return loginRequiredResult(err);
+        }
         return {
           content: [{ type: 'text' as const, text: `get_record failed: ${(err as Error).message}` }],
           isError: true,

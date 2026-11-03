@@ -251,3 +251,50 @@ describe('fetchPrimo cookie attachment', () => {
     expect(options?.headers).toEqual({ Cookie: 'JSESSIONID=abc123' });
   });
 });
+
+describe('fetchPrimo login_required detection', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('throws LoginRequiredError on a 401 when a session was attached', async () => {
+    vi.spyOn(sessionModule, 'loadSession').mockReturnValue('JSESSIONID=abc123');
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: false,
+      status: 401,
+      url: 'https://onesearch.library.northeastern.edu/primaws/x',
+      redirected: false,
+      json: async () => ({}),
+    });
+    await expect(searchOneSearch({ query: 'test' })).rejects.toThrow(/session is missing or expired/);
+  });
+
+  it('throws LoginRequiredError when redirected to an SSO host with a session', async () => {
+    vi.spyOn(sessionModule, 'loadSession').mockReturnValue('JSESSIONID=abc123');
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      status: 200,
+      url: 'https://neuidmsso.neu.edu/idp/profile/SAML2',
+      redirected: true,
+      json: async () => ({}),
+    });
+    await expect(searchOneSearch({ query: 'test' })).rejects.toThrow(/session is missing or expired/);
+  });
+
+  it('does not raise login_required for an anonymous (no-session) request', async () => {
+    vi.spyOn(sessionModule, 'loadSession').mockReturnValue(null);
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: false,
+      status: 403,
+      url: 'https://onesearch.library.northeastern.edu/primaws/x',
+      redirected: false,
+      json: async () => ({}),
+    });
+    // Anonymous: a 403 is a plain request failure, not a login prompt.
+    await expect(searchOneSearch({ query: 'test' })).rejects.toThrow('OneSearch request failed: HTTP 403');
+  });
+});
