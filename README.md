@@ -218,7 +218,7 @@ From a checkout:
 node dist/logout.js
 ```
 
-`neu-onesearch-logout` ships in the first release after 0.1.2; on 0.1.2, delete `~/.cache/neu-onesearch-mcp/` by hand.
+`neu-onesearch-logout` is available from 0.2.0; on 0.1.2, delete `~/.cache/neu-onesearch-mcp/` by hand.
 
 This deletes `session.json` and the `profile/` directory. It is safe to run when you are already
 signed out. After logout, a tool that needs the session returns `login_required`.

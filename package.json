@@ -1,6 +1,6 @@
 {
   "name": "@sohampatwardhan/neu-onesearch-mcp",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "MCP server for Northeastern University Scholar OneSearch: search NEU's library catalog and article databases from Claude and other MCP clients.",
   "license": "MIT",
   "author": "Soham Patwardhan",
