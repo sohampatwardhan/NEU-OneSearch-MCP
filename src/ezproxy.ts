@@ -5,7 +5,12 @@
  * pull the proxied article. Cookie scoping comes from `session.ts` (#5), which
  * is the single source of truth for which cookies reach which host.
  */
+import { lookup as dnsLookup, type LookupAddress, type LookupAllOptions } from 'node:dns';
 import { lookup } from 'node:dns/promises';
+import { request as httpRequest, type IncomingMessage } from 'node:http';
+import { request as httpsRequest } from 'node:https';
+import { isIP, type LookupFunction } from 'node:net';
+import { Readable } from 'node:stream';
 import { isSignInHostname } from './auth.js';
 import { cookieHeaderForHost, isEzproxyHostname, type StoredCookie } from './session.js';
 
@@ -512,11 +517,134 @@ async function defaultLookup(hostname: string): Promise<string[]> {
   return addresses.map((entry) => entry.address);
 }
 
+/** The eight 16-bit groups of an IPv6 literal, or null when it is not one. */
+function ipv6Groups(address: string): number[] | null {
+  let value = address.toLowerCase().replace(/^\[|\]$/g, '').replace(/%.*$/, '');
+  if (isIP(value) !== 6) return null;
+  const dotted = /(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(value);
+  if (dotted) {
+    const [a, b, c, d] = dotted.slice(1).map(Number);
+    value = `${value.slice(0, dotted.index)}${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`;
+  }
+  const [head, tail] = value.includes('::') ? value.split('::') : [value, null];
+  const headGroups = head ? head.split(':') : [];
+  const tailGroups = tail ? tail.split(':') : [];
+  const fill = tail === null ? [] : Array(8 - headGroups.length - tailGroups.length).fill('0');
+  const groups = [...headGroups, ...fill, ...tailGroups].map((group) => parseInt(group, 16));
+  return groups.length === 8 && groups.every((group) => Number.isInteger(group)) ? groups : null;
+}
+
+function isPublicIPv4(address: string): boolean {
+  const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(address);
+  if (!match || isBlockedHostname(address)) return false;
+  const [a, b, c] = match.slice(1).map(Number);
+  if (a === 192 && b === 0 && (c === 0 || c === 2)) return false; // IETF protocol assignments, TEST-NET-1
+  if (a === 198 && (b === 18 || b === 19)) return false; // benchmarking
+  if (a === 198 && b === 51 && c === 100) return false; // TEST-NET-2
+  if (a === 203 && b === 0 && c === 113) return false; // TEST-NET-3
+  return true;
+}
+
+/**
+ * True only for a globally routable unicast address. IPv6 must be in 2000::/3, minus the
+ * prefixes that tunnel or translate to IPv4 (6to4, Teredo) and documentation space, so an
+ * address embedding a private IPv4 cannot slip through. NAT64 (64:ff9b::/96) and
+ * IPv4-compatible (::/96) forms fall outside 2000::/3 and are refused with it.
+ */
+export function isPublicAddress(address: string): boolean {
+  const value = address.trim().replace(/^\[|\]$/g, '');
+  if (isIP(value) === 4) return isPublicIPv4(value);
+  const groups = ipv6Groups(value);
+  if (!groups) return false;
+  if (groups.slice(0, 5).every((group) => group === 0) && groups[5] === 0xffff) {
+    return isPublicIPv4(`${groups[6] >> 8}.${groups[6] & 0xff}.${groups[7] >> 8}.${groups[7] & 0xff}`);
+  }
+  if ((groups[0] & 0xe000) !== 0x2000) return false;
+  if (groups[0] === 0x2002) return false; // 6to4
+  if (groups[0] === 0x2001 && groups[1] === 0x0000) return false; // Teredo
+  if (groups[0] === 0x2001 && groups[1] === 0x0db8) return false; // documentation
+  return true;
+}
+
+type LookupCallback = (err: NodeJS.ErrnoException | null, addresses: LookupAddress[]) => void;
+export type ResolveAllLike = (hostname: string, options: LookupAllOptions, callback: LookupCallback) => void;
+
+/**
+ * A `net` lookup hook that resolves the host and refuses the connection unless every
+ * address is public. The socket connects to the address this hook returns, so the check
+ * and the connection use the same answer and a DNS rebind between them cannot reach a
+ * private address.
+ */
+export function publicOnlyLookup(
+  resolve: ResolveAllLike = dnsLookup as unknown as ResolveAllLike,
+  isAllowed: (address: string) => boolean = isPublicAddress
+): LookupFunction {
+  return (hostname, options, callback) => {
+    resolve(hostname, { ...options, all: true }, (err, addresses) => {
+      if (err) return callback(err, '', 0);
+      if (addresses.length === 0 || addresses.some((entry) => !isAllowed(entry.address))) {
+        const blocked: NodeJS.ErrnoException = new Error(`Refusing to connect: ${hostname} resolves to a non-public address.`);
+        blocked.code = 'EADDRNOTPUBLIC';
+        return callback(blocked, '', 0);
+      }
+      if (options.all) return (callback as unknown as LookupCallback)(null, addresses);
+      callback(null, addresses[0].address, addresses[0].family);
+    });
+  };
+}
+
+function toHeaders(message: IncomingMessage): Headers {
+  const headers = new Headers();
+  for (const [name, value] of Object.entries(message.headers)) {
+    if (value === undefined) continue;
+    for (const item of Array.isArray(value) ? value : [value]) headers.append(name, item);
+  }
+  return headers;
+}
+
+/**
+ * A FetchLike over `node:http(s)` whose sockets connect only through `publicOnlyLookup`.
+ * It never follows redirects and never decompresses (no Accept-Encoding is sent).
+ */
+export function createPinnedFetch(lookupHook: LookupFunction = publicOnlyLookup()): FetchLike {
+  return (input, init = {}) =>
+    new Promise<Response>((resolvePromise, reject) => {
+      const url = new URL(input);
+      const request = url.protocol === 'https:' ? httpsRequest : httpRequest;
+      const req = request(
+        url,
+        {
+          method: init.method ?? 'GET',
+          headers: init.headers as Record<string, string> | undefined,
+          lookup: lookupHook,
+          signal: init.signal ?? undefined,
+        },
+        (res) => {
+          const status = res.statusCode ?? 0;
+          if (status < 200 || status > 599) {
+            res.destroy();
+            reject(new Error(`Unexpected HTTP status ${status}.`));
+            return;
+          }
+          const nullBody = status === 204 || status === 205 || status === 304;
+          if (nullBody) res.resume();
+          const body = nullBody ? null : (Readable.toWeb(res) as ReadableStream<Uint8Array>);
+          resolvePromise(new Response(body, { status, statusText: res.statusMessage, headers: toHeaders(res) }));
+        }
+      );
+      req.on('error', reject);
+      req.end();
+    });
+}
+
 /** Why a URL may not be fetched directly, or null when it is a public http(s) URL. */
 async function publicUrlRefusal(url: URL, lookupImpl: LookupLike): Promise<string | null> {
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return 'only http and https URLs are fetched';
   if (url.username || url.password) return 'URLs with embedded credentials are not fetched';
   if (isBlockedHostname(url.hostname)) return 'the host is a local or private address';
+  if (isIP(url.hostname.replace(/^\[|\]$/g, '')) && !isPublicAddress(url.hostname)) {
+    return 'the host is not a public address';
+  }
   let addresses: string[];
   try {
     addresses = await lookupImpl(url.hostname.replace(/^\[|\]$/g, ''));
@@ -524,14 +652,16 @@ async function publicUrlRefusal(url: URL, lookupImpl: LookupLike): Promise<strin
     return `the host ${url.hostname} could not be resolved`;
   }
   if (addresses.length === 0) return `the host ${url.hostname} could not be resolved`;
-  if (addresses.some((address) => isBlockedHostname(address))) return 'the host resolves to a local or private address';
+  if (addresses.some((address) => !isPublicAddress(address))) return 'the host resolves to a local or private address';
   return null;
 }
 
 /**
  * Fetch a public URL directly, without any session cookie. Used for publishers that
  * EZproxy does not proxy (usually open access). Every hop must be http(s) and resolve
- * only to public addresses, so a hostile redirect cannot probe the local network.
+ * only to public addresses, so a hostile redirect cannot probe the local network. The
+ * default transport re-checks the address at connect time (`createPinnedFetch`), so the
+ * pre-check here is for clear messages, not the only guard.
  */
 export async function fetchPublicResource(startUrl: string, options: ProxyFetchOptions = {}): Promise<ProxyFetchResult> {
   let url: URL;
@@ -541,7 +671,7 @@ export async function fetchPublicResource(startUrl: string, options: ProxyFetchO
     return { kind: 'error', finalUrl: null, message: 'The publisher URL is not a valid URL.' };
   }
 
-  const fetchImpl = options.fetchImpl ?? fetch;
+  const fetchImpl = options.fetchImpl ?? createPinnedFetch();
   const lookupImpl = options.lookupImpl ?? defaultLookup;
   const maxBytes = options.maxDownloadBytes ?? FULL_TEXT_LIMITS.maxDownloadBytes;
   const maxRedirects = options.maxRedirects ?? FULL_TEXT_LIMITS.maxRedirects;
@@ -569,6 +699,7 @@ export async function fetchPublicResource(startUrl: string, options: ProxyFetchO
     if (!(response instanceof Response)) return response;
 
     if (isRedirect(response.status)) {
+      await response.body?.cancel().catch(() => undefined);
       const next = redirectTarget(response, url);
       if (!(next instanceof URL)) return next;
       url = next;

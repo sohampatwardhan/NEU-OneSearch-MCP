@@ -13,7 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `get_full_text` fetches the publisher page and its `citation_pdf_url`
   directly, without session cookies. If that fails, a new `not_proxied` status
   returns the publisher URL in `sourceUrl`. Each direct hop must be http(s) and
-  resolve only to public addresses.
+  resolve only to globally routable addresses. The check runs again in the
+  socket's DNS lookup, so a DNS rebind between check and connect cannot reach a
+  private address. IPv6 forms that embed IPv4 (6to4, Teredo, NAT64,
+  IPv4-compatible) are refused.
 - The SSRF host guard also blocks carrier-grade NAT (`100.64.0.0/10`, used by
   VPN overlays such as Tailscale) and multicast or reserved addresses.
 

@@ -12,7 +12,13 @@ import {
   absorbSetCookie,
   fetchEzproxyResource,
   fetchPublicResource,
+  isPublicAddress,
+  publicOnlyLookup,
+  createPinnedFetch,
+  type ResolveAllLike,
 } from '../src/ezproxy.js';
+import { createServer, type IncomingHttpHeaders } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { isSignInHostname } from '../src/auth.js';
 import { vi } from 'vitest';
 import type { StoredCookie } from '../src/session.js';
@@ -278,8 +284,120 @@ describe('fetchPublicResource', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
+  it('refuses a host whose IPv6 address embeds a private IPv4 (6to4)', async () => {
+    const fetchImpl = vi.fn();
+    const result = await fetchPublicResource('https://tunnel.example/x', {
+      fetchImpl,
+      lookupImpl: async () => ['2002:a00:1::1'],
+    });
+    expect(result.kind).toBe('error');
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it('refuses non-http schemes', async () => {
     const result = await fetchPublicResource('file:///etc/passwd', { fetchImpl: vi.fn(), lookupImpl: publicLookup });
     expect(result.kind).toBe('error');
+  });
+});
+
+describe('isPublicAddress', () => {
+  it('allows global unicast IPv4 and IPv6', () => {
+    for (const a of ['8.8.8.8', '151.101.1.1', '2606:4700::1111', '[2a00:1450:4001::200e]', '::ffff:8.8.8.8']) {
+      expect(isPublicAddress(a)).toBe(true);
+    }
+  });
+  it('refuses private, reserved, and documentation IPv4', () => {
+    for (const a of ['10.0.0.1', '127.0.0.1', '100.64.0.1', '169.254.169.254', '192.0.0.8', '192.0.2.1', '198.18.0.1', '198.51.100.7', '203.0.113.9', '0.0.0.0', '240.0.0.1']) {
+      expect(isPublicAddress(a)).toBe(false);
+    }
+  });
+  it('refuses IPv6 forms that embed or translate to IPv4', () => {
+    for (const a of [
+      '2002:7f00:1::1', // 6to4 of 127.0.0.1
+      '2001:0:4136:e378:8000:63bf:3fff:fdd2', // Teredo
+      '64:ff9b::7f00:1', // NAT64 of 127.0.0.1
+      '64:ff9b::10.0.0.1',
+      '::7f00:1', // IPv4-compatible
+      '::127.0.0.1',
+      '::ffff:10.0.0.1',
+      '::ffff:7f00:1',
+    ]) {
+      expect(isPublicAddress(a)).toBe(false);
+    }
+  });
+  it('refuses non-global IPv6 and non-addresses', () => {
+    for (const a of ['::1', '::', 'fe80::1', 'fd00::1', 'ff02::1', '2001:db8::1', 'example.com', '']) {
+      expect(isPublicAddress(a)).toBe(false);
+    }
+  });
+});
+
+describe('publicOnlyLookup', () => {
+  const stub =
+    (addresses: string[]): ResolveAllLike =>
+    (_host, _opts, cb) =>
+      cb(null, addresses.map((address) => ({ address, family: address.includes(':') ? 6 : 4 })));
+
+  it('returns the first address, or all of them when asked', async () => {
+    const hook = publicOnlyLookup(stub(['151.101.1.1', '2606:4700::1111']));
+    const one = await new Promise<unknown[]>((resolve) => hook('pub.test', {}, (...args) => resolve(args)));
+    expect(one).toEqual([null, '151.101.1.1', 4]);
+    const all = await new Promise<unknown[]>((resolve) => hook('pub.test', { all: true }, (...args) => resolve(args)));
+    expect(all[1]).toHaveLength(2);
+  });
+
+  it('fails the connection when any resolved address is not public', async () => {
+    const hook = publicOnlyLookup(stub(['151.101.1.1', '10.0.0.7']));
+    const [err] = await new Promise<unknown[]>((resolve) => hook('rebind.test', {}, (...args) => resolve(args)));
+    expect((err as NodeJS.ErrnoException).code).toBe('EADDRNOTPUBLIC');
+  });
+});
+
+describe('createPinnedFetch', () => {
+  async function withServer(run: (port: number, hits: IncomingHttpHeaders[]) => Promise<void>) {
+    const hits: IncomingHttpHeaders[] = [];
+    const server = createServer((req, res) => {
+      hits.push(req.headers);
+      if (req.url === '/start') {
+        res.writeHead(302, { location: '/article' }).end('moved');
+      } else {
+        res.writeHead(200, { 'content-type': 'text/html' }).end('<html>open article</html>');
+      }
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    try {
+      await run((server.address() as AddressInfo).port, hits);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  }
+  const toLoopback: ResolveAllLike = (_host, _opts, cb) => cb(null, [{ address: '127.0.0.1', family: 4 }]);
+
+  it('refuses at connect time when DNS rebinds to a private address after the pre-check', async () => {
+    await withServer(async (port, hits) => {
+      const result = await fetchPublicResource(`http://rebind.test:${port}/start`, {
+        // The pre-check sees a public address; the connection-time lookup sees loopback.
+        lookupImpl: async () => ['151.101.1.1'],
+        fetchImpl: createPinnedFetch(publicOnlyLookup(toLoopback)),
+      });
+      expect(result.kind).toBe('error');
+      if (result.kind === 'error') expect(result.message).toMatch(/non-public address/);
+      expect(hits).toHaveLength(0);
+    });
+  });
+
+  it('follows redirects over node:http without sending cookies', async () => {
+    await withServer(async (port, hits) => {
+      const result = await fetchPublicResource(`http://pub.test:${port}/start`, {
+        lookupImpl: async () => ['151.101.1.1'],
+        fetchImpl: createPinnedFetch(publicOnlyLookup(toLoopback, () => true)),
+      });
+      expect(result.kind).toBe('response');
+      if (result.kind !== 'response') return;
+      expect(result.finalUrl).toBe(`http://pub.test:${port}/article`);
+      expect(new TextDecoder().decode(result.body)).toContain('open article');
+      expect(hits).toHaveLength(2);
+      for (const headers of hits) expect(headers.cookie).toBeUndefined();
+    });
   });
 });
