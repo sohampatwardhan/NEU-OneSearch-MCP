@@ -91,6 +91,28 @@ export function classifySession(cookies: StoredCookie[] | null, nowMs: number = 
   return 'unusable';
 }
 
+export type EzproxySessionState = 'ready' | 'absent' | 'expired' | 'onesearch_only' | 'unusable';
+
+/**
+ * EZproxy-specific classification for the full-text tool. Unlike
+ * `classifySession` (which the anonymous tools use and which treats a
+ * OneSearch-only session as `ready`), full text needs a live EZproxy cookie: a
+ * OneSearch login alone does not unlock proxied article downloads. Built on the
+ * same `hasEzproxySession`/`belongsToOneSearch`/`isCookieExpired` helpers so the
+ * two classifiers stay in sync; it does not change `classifySession`.
+ */
+export function classifyEzproxySession(
+  cookies: StoredCookie[] | null,
+  nowMs: number = Date.now()
+): EzproxySessionState {
+  if (cookies === null) return 'absent';
+  if (hasEzproxySession(cookies, nowMs)) return 'ready';
+  const issued = cookies.filter(isEzproxyIssuedCookie);
+  if (issued.length > 0 && issued.every((c) => isCookieExpired(c, nowMs))) return 'expired';
+  if (cookies.some(belongsToOneSearch)) return 'onesearch_only';
+  return 'unusable';
+}
+
 function domainMatchesHost(cookieDomainValue: string, host: string): boolean {
   const domain = cookieDomainValue.replace(/^\./, '').toLowerCase();
   const normalizedHost = host.toLowerCase().replace(/\.$/, '');

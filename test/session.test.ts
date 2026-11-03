@@ -11,6 +11,7 @@ import {
   hasEzproxySession,
   hasOneSearchSession,
   classifySession,
+  classifyEzproxySession,
   cookieHeaderForHost,
   type StoredCookie,
 } from '../src/session.js';
@@ -232,5 +233,29 @@ describe('cookieHeaderForHost', () => {
   it('does not send a host-only cookie to a different host', () => {
     const header = cookieHeaderForHost(jar, 'link.ezproxy.neu.edu', '/', now);
     expect(header).not.toContain('sid=S'); // host-only for doi-org
+  });
+});
+
+describe('classifyEzproxySession', () => {
+  const now = 1_700_000_000_000;
+  const ez: StoredCookie = { name: 'ezproxy', value: 'x', domain: '.ezproxy.neu.edu' };
+  const ezExpired: StoredCookie = { name: 'ezproxy', value: 'x', domain: '.ezproxy.neu.edu', expires: now / 1000 - 1 };
+  const oneSearch: StoredCookie = { name: 'JSESSIONID', value: 'x', domain: ONESEARCH };
+
+  it('absent when cookies is null', () => {
+    expect(classifyEzproxySession(null, now)).toBe('absent');
+  });
+  it('ready with a live EZproxy-issued cookie', () => {
+    expect(classifyEzproxySession([ez], now)).toBe('ready');
+    expect(classifyEzproxySession([ez, oneSearch], now)).toBe('ready');
+  });
+  it('expired when EZproxy cookies are all past expiry', () => {
+    expect(classifyEzproxySession([ezExpired], now)).toBe('expired');
+  });
+  it('onesearch_only when only OneSearch cookies are present', () => {
+    expect(classifyEzproxySession([oneSearch], now)).toBe('onesearch_only');
+  });
+  it('unusable when no recognized session cookie is present', () => {
+    expect(classifyEzproxySession([{ name: '_ga', value: 'x', domain: '.bing.com' }], now)).toBe('unusable');
   });
 });

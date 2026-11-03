@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { searchOneSearch, getRecord } from './primoClient.js';
 import { mapSearchResponse, mapDoc } from './mapper.js';
 import { LoginRequiredError } from './auth.js';
+import { getFullText } from './fullText.js';
 
 function loginRequiredResult(err: LoginRequiredError) {
   return {
@@ -87,6 +88,35 @@ export function createServer(): McpServer {
         }
         return {
           content: [{ type: 'text' as const, text: `get_record failed: ${(err as Error).message}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  server.registerTool(
+    'get_full_text',
+    {
+      description:
+        'Retrieve and extract the plain text of an article Northeastern subscribes to, fetched through the library EZproxy using the cached sign-in session. Pass a DOI (preferred) or an alma OneSearch record id. Requires a valid EZproxy session from `neu-onesearch-login`; returns status `login_required` when the session is missing or expired. Result statuses: ok, partial, login_required, not_entitled, not_found, too_large, unsupported, error.',
+      inputSchema: {
+        doi: z.string().optional().describe('Article DOI, or a https://doi.org/ URL (preferred input)'),
+        recordId: z
+          .string()
+          .optional()
+          .describe('alma OneSearch record id from a prior search_onesearch/get_record result'),
+      },
+    },
+    async ({ doi, recordId }) => {
+      try {
+        const result = await getFullText({ doi, recordId });
+        return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
+      } catch (err) {
+        if (err instanceof LoginRequiredError) {
+          return loginRequiredResult(err);
+        }
+        return {
+          content: [{ type: 'text' as const, text: `get_full_text failed: ${(err as Error).message}` }],
           isError: true,
         };
       }

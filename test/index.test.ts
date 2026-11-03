@@ -118,6 +118,33 @@ describe('MCP server tools', () => {
     expect(parsed.message).toContain('login');
   });
 
+  it('get_full_text returns an error when neither doi nor recordId is given', async () => {
+    const client = await connectedClient(createServer());
+    const result = await client.request(
+      { method: 'tools/call', params: { name: 'get_full_text', arguments: {} } },
+      CallToolResultSchema
+    );
+
+    expect(result.isError).toBeFalsy();
+    const parsed = JSON.parse((result.content[0] as { text: string }).text);
+    expect(parsed.status).toBe('error');
+    expect(parsed.message).toMatch(/doi/i);
+  });
+
+  it('get_full_text returns login_required when no session is cached', async () => {
+    vi.spyOn(sessionModule, 'loadStoredCookies').mockReturnValue(null);
+    const client = await connectedClient(createServer());
+    const result = await client.request(
+      { method: 'tools/call', params: { name: 'get_full_text', arguments: { doi: '10.1371/journal.pone.0212767' } } },
+      CallToolResultSchema
+    );
+
+    expect(result.isError).toBeFalsy();
+    const parsed = JSON.parse((result.content[0] as { text: string }).text);
+    expect(parsed.status).toBe('login_required');
+    expect(parsed.sourceUrl).toContain('link.ezproxy.neu.edu');
+  });
+
   it('get_record returns "no record found" for a valid but missing id', async () => {
     (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
       ok: true,

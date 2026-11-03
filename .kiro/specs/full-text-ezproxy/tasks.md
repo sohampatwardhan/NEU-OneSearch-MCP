@@ -51,13 +51,13 @@ flowchart TB
 
 ## Tasks
 
-- [ ] 1. Update CI for the new dependency and tests
-  - Confirm `.github/workflows/ci.yml` runs `npm ci`, `npm run typecheck`,
-    `npm run build`, `npm test`, and `npm pack --dry-run`; it already does, so
-    extend only if a step is missing once `pdfjs-dist` is added
+- [x] 1. Update CI for the new dependency and tests
+  - `.github/workflows/ci.yml` already runs `npm ci`, `npm run typecheck`,
+    `npm run build`, `npm test`, and `npm pack --dry-run` on push and PR, which
+    covers the added dependency and the new test files; no change needed
   - Gates every later task: it must pass before task 2 starts
 
-- [ ] 2. Add the PDF dependency and the EZproxy session classifier
+- [x] 2. Add the PDF dependency and the EZproxy session classifier
   - Add `pdfjs-dist` pinned to `3.11.174` to `dependencies` in `package.json`
     and update `package-lock.json`
   - Add `classifyEzproxySession` and `EzproxySessionState` to `src/session.ts`,
@@ -66,7 +66,7 @@ flowchart TB
   - Do not change `classifySession` or any other #5 export
   - _Requirements: 2.1_
 
-- [ ] 3. Build the EZproxy fetch path in `src/ezproxy.ts`
+- [x] 3. Build the EZproxy fetch path in `src/ezproxy.ts`
   - Add `FULL_TEXT_LIMITS`, `toEzproxyFetchUrl`, `isBlockedHostname`,
     `isEzproxyLoginPage`, `absorbSetCookie`, the `FetchLike`/`ProxyFetchResult`
     types, and `fetchEzproxyResource`
@@ -77,14 +77,14 @@ flowchart TB
     `EZPROXY_*` exports working
   - _Requirements: 1.1, 2.2, 2.3, 3.4_
 
-- [ ] 4. Add `src/extractText.ts`
+- [x] 4. Add `src/extractText.ts`
   - Port PDF text extraction via `pdfjs-dist` legacy build with the page cap,
     `htmlToText`, `findMetaContent`, `findPreferredPdfUrl`, `looksLikePdf`,
     `looksLikeHtml`, `looksLikePaywall`, `looksLikeBotWall`, `decodeBody`
   - Add `test/fixtures/tiny.pdf` from PR #2
   - _Requirements: 3.1, 3.2, 3.5, 3.6_
 
-- [ ] 5. Add `src/fullText.ts` orchestration
+- [x] 5. Add `src/fullText.ts` orchestration
   - Implement `getFullText`: `resolveTarget` (DOI or `getRecord` + `mapDoc`),
     session gate via `classifyEzproxySession`, fetch via `fetchEzproxyResource`,
     PDF/HTML branch, `citation_pdf_url` re-routed through EZproxy, and the full
@@ -92,13 +92,13 @@ flowchart TB
   - Use #5's `loadStoredCookies` and `sessionCachePath` defaults
   - _Requirements: 1.2, 1.3, 1.4, 1.5, 2.1, 2.4, 3.1, 3.2, 3.3, 3.5, 3.6, 3.7_
 
-- [ ] 6. Register the `get_full_text` tool in `src/index.ts`
+- [x] 6. Register the `get_full_text` tool in `src/index.ts`
   - Add the tool with a `doi`/`recordId` zod input schema, call `getFullText`,
     and return the JSON result; keep the existing `LoginRequiredError` catch for
     the metadata lookup path
   - _Requirements: 1.3, 3.7_
 
-- [ ] 7. Add the smoke script and README docs
+- [x] 7. Add the smoke script and README docs
   - Add `scripts/fulltext-smoke.mjs` targeting `dist/`, exiting non-zero on
     `login_required` or a non-text result
   - Document `get_full_text`, its inputs, statuses, and the smoke test in
