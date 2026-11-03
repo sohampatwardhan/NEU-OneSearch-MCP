@@ -66,7 +66,7 @@ flowchart TB
   - Do not change `classifySession` or any other #5 export
   - _Requirements: 2.1_
 
-- [ ] 3. Build the EZproxy fetch path in `src/ezproxy.ts`
+- [x] 3. Build the EZproxy fetch path in `src/ezproxy.ts`
   - Add `FULL_TEXT_LIMITS`, `toEzproxyFetchUrl`, `isBlockedHostname`,
     `isEzproxyLoginPage`, `absorbSetCookie`, the `FetchLike`/`ProxyFetchResult`
     types, and `fetchEzproxyResource`
