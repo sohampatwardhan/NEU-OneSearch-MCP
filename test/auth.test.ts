@@ -16,6 +16,14 @@ describe('isLoginRedirect', () => {
     expect(isLoginRedirect(resp(200, 'https://login.ezproxy.neu.edu/login', true))).toBe(true);
   });
 
+  it('is true when redirected to OneSearch\'s own discovery login wall', () => {
+    expect(
+      isLoginRedirect(
+        resp(200, 'https://onesearch.library.northeastern.edu/discovery/login?vid=01NEU_INST:NUL', true)
+      )
+    ).toBe(true);
+  });
+
   it('is false for a normal 200 at the expected host', () => {
     expect(isLoginRedirect(resp(200, 'https://onesearch.library.northeastern.edu/primaws/x', false))).toBe(false);
   });

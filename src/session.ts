@@ -72,6 +72,15 @@ export type SessionState = 'ready' | 'absent' | 'expired' | 'unusable';
  * OneSearch or EZproxy session cookie. `expired` means we hold such cookies but
  * all are past their recorded expiry. `unusable` means the cache has cookies but
  * none we recognize as a session. `absent` means no cache at all.
+ *
+ * Groundwork: `classifySession`, `cookieHeaderForHost`, and the `has*Session`
+ * helpers are the host-scoped reuse path for a future EZproxy full-text tool
+ * (out of scope here, tracked in issue #2). The two shipping tools
+ * (`search_onesearch`, `get_record`) are anonymous in content, so they must not
+ * pre-flight the cache and refuse a search that works fine anonymously; they
+ * surface session loss only via the live redirect/401 path (see auth.ts). The
+ * stored `capturedAt` is advisory for the same reason — expiry rides on cookie
+ * `expires` and the live signal, not a fixed timer.
  */
 export function classifySession(cookies: StoredCookie[] | null, nowMs: number = Date.now()): SessionState {
   if (cookies === null) return 'absent';
@@ -170,6 +179,8 @@ export function writeSessionCache(
 ): void {
   const payload: SessionCache = { cookies, capturedAt };
   writeFileSync(path, JSON.stringify(payload, null, 2), { mode: 0o600 });
+  // `mode` on write only applies when the file is created, and umask can weaken
+  // it; the explicit chmod also tightens an existing file on re-login (Req 3.3).
   chmodSync(path, 0o600);
 }
 

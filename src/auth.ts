@@ -23,9 +23,22 @@ const SSO_HOST_PATTERNS = [
   /(^|\.)duosecurity\.com$/i,
 ];
 
-function hostOf(url: string): string | null {
+/**
+ * A redirect back to OneSearch's own sign-in wall. Primo VE can answer a stale
+ * session by bouncing to its discovery login page instead of to the IdP, so a
+ * redirect whose path is the discovery login also means login_required.
+ */
+function isOneSearchLoginUrl(url: URL): boolean {
+  const host = url.hostname.toLowerCase();
+  const isOneSearch =
+    host === 'onesearch.library.northeastern.edu' ||
+    host.endsWith('.onesearch.library.northeastern.edu');
+  return isOneSearch && /\/discovery\/login\b/i.test(url.pathname);
+}
+
+function parseUrl(url: string): URL | null {
   try {
-    return new URL(url).hostname.toLowerCase();
+    return new URL(url);
   } catch {
     return null;
   }
@@ -33,13 +46,14 @@ function hostOf(url: string): string | null {
 
 /**
  * True when a response means the session was rejected: an HTTP 401/403, or a
- * request that (after following redirects) ended at a sign-in host. `fetch`
+ * request that (after following redirects) ended at a sign-in page. `fetch`
  * follows redirects by default, so the final `response.url` is where we landed.
  */
 export function isLoginRedirect(response: Pick<Response, 'status' | 'url' | 'redirected'>): boolean {
   if (response.status === 401 || response.status === 403) return true;
-  const host = hostOf(response.url ?? '');
-  if (!host) return false;
   if (!response.redirected) return false;
-  return SSO_HOST_PATTERNS.some((pattern) => pattern.test(host));
+  const url = parseUrl(response.url ?? '');
+  if (!url) return false;
+  const host = url.hostname.toLowerCase();
+  return SSO_HOST_PATTERNS.some((pattern) => pattern.test(host)) || isOneSearchLoginUrl(url);
 }
