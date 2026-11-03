@@ -1,6 +1,6 @@
 ---
 name: neu-literature-review
-description: Use when running a literature review through the Northeastern library's OneSearch with the NEU OneSearch MCP tools: searching, triaging abstracts, and full-text retrieval.
+description: Use when running a literature review through the Northeastern library's OneSearch with the NEU OneSearch MCP tools, for searching, triaging abstracts, and full-text retrieval.
 ---
 
 # NEU literature review

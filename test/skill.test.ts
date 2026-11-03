@@ -19,6 +19,13 @@ describe('neu-literature-review skill', () => {
     expect(d).toMatch(/full-text retrieval/i);
     expect(d).toMatch(/Northeastern/);
   });
+  it('frontmatter values contain no ": " (invalid in a YAML plain scalar)', () => {
+    const fm = skill.split('\n---\n')[0].split('\n').slice(1);
+    for (const line of fm) {
+      const value = line.slice(line.indexOf(':') + 1);
+      expect(value, line).not.toContain(': ');
+    }
+  });
   it('stays under 120 lines', () => {
     expect(skill.split('\n').length).toBeLessThan(120);
   });
